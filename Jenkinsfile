@@ -8,7 +8,7 @@ pipeline {
     OPA = "opa"
     DOCKER = "docker"
     MVN = "mvn"
-    ZAP = "/Applications/ZAP.app/Contents/Java/zap.sh"
+    ZAP = "/opt/zaproxy/zap.sh"
 }
 
     stages {
