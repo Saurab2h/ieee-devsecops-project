@@ -1,0 +1,11 @@
+package devsecops
+
+deny contains msg if {
+    input[0].Config.User == "root"
+    msg := "Container must not run as root"
+}
+
+deny contains msg if {
+    not input[0].Config.ExposedPorts["8080/tcp"]
+    msg := "Required application port not exposed"
+}

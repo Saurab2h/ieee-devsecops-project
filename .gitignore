@@ -1,0 +1,6 @@
+results/
+*.log
+*.class
+target/
+.DS_Store
+dependency-check-data/
