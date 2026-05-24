@@ -2,14 +2,14 @@ pipeline {
     agent any
 
     environment {
-        SEMGREP = "/opt/homebrew/bin/semgrep"
-        DEP_CHECK = "/opt/homebrew/bin/dependency-check"
-        TRIVY = "/opt/homebrew/bin/trivy"
-        OPA = "/opt/homebrew/bin/opa"
-        DOCKER = "/usr/local/bin/docker"
-        MVN = "/opt/homebrew/bin/mvn"
-        ZAP = "/Applications/ZAP.app/Contents/Java/zap.sh"
-    }
+    SEMGREP = "semgrep"
+    DEP_CHECK = "dependency-check"
+    TRIVY = "trivy"
+    OPA = "opa"
+    DOCKER = "docker"
+    MVN = "mvn"
+    ZAP = "/Applications/ZAP.app/Contents/Java/zap.sh"
+}
 
     stages {
 
