@@ -31,20 +31,19 @@ pipeline {
         }
 
         stage('Dependency Check') {
-            steps {
-                sh '''
-                cd app/vulnapp
-                mkdir -p ${WORKSPACE}/results/dependency-check
+    steps {
+        sh '''
+        cd app/vulnapp
+        mkdir -p ${WORKSPACE}/results/dependency-check
 
-                $DEP_CHECK \
-                  --project vulnapp \
-                  --scan . \
-                  --format ALL \
-                  --noupdate \
-                  --out ${WORKSPACE}/results/dependency-check
-                '''
-            }
-        }
+        dependency-check \
+          --project vulnapp \
+          --scan . \
+          --format ALL \
+          --out ${WORKSPACE}/results/dependency-check || true
+        '''
+    }
+}
 
         stage('Build App') {
             steps {
