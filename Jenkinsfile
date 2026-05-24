@@ -101,17 +101,18 @@ pipeline {
         }
 
         stage('OWASP ZAP DAST') {
-            steps {
-                sh '''
-                chmod +x $ZAP
+    steps {
+        sh '''
+        chmod +x $ZAP
 
-                $ZAP \
-                  -cmd \
-                  -quickurl http://host.docker.internal:8081 \
-                  -quickout ${WORKSPACE}/results/zap-report.html
-                '''
-            }
-        }
+        $ZAP \
+          -cmd \
+          -port 8090 \
+          -quickurl http://host.docker.internal:8081 \
+          -quickout ${WORKSPACE}/results/zap-report.html
+        '''
+    }
+}
     }
 
     post {
