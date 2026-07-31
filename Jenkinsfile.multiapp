@@ -29,6 +29,9 @@ pipeline {
                 mkdir -p results/multiapp/dvwa
                 mkdir -p results/multiapp/juiceshop
                 echo "Multi-app run started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+                # Fix 4: Pre-pull ZAP image once so scan stages don't re-download it
+                docker pull ghcr.io/zaproxy/zaproxy:stable || true
                 '''
             }
         }
@@ -128,6 +131,9 @@ pipeline {
                 sh '''
                 START=$(date +%s)
 
+                # Fix 1: Ensure ZAP container can write reports to the mounted volume
+                chmod -R 777 ${WORKSPACE}/results
+
                 # Start DVWA container
                 $DOCKER rm -f dvwa-scan-target || true
                 $DOCKER run -d \
@@ -136,8 +142,9 @@ pipeline {
                   vulnerables/web-dvwa:latest || true
                 sleep 15
 
-                # Run ZAP scan
+                # Run ZAP scan — --user root fixes Permission denied on /zap/wrk/zap-report.html
                 $DOCKER run --rm \
+                  --user root \
                   --network host \
                   -v ${WORKSPACE}/results/multiapp/dvwa:/zap/wrk:rw \
                   ${ZAP_IMAGE} \
@@ -207,6 +214,9 @@ pipeline {
                 sh '''
                 START=$(date +%s)
 
+                # Fix 1: Ensure ZAP container can write reports to the mounted volume
+                chmod -R 777 ${WORKSPACE}/results
+
                 # Start Juice Shop container
                 $DOCKER rm -f juiceshop-scan-target || true
                 $DOCKER run -d \
@@ -215,8 +225,9 @@ pipeline {
                   bkimminich/juice-shop:latest || true
                 sleep 20  # Juice Shop takes longer to start
 
-                # Run ZAP scan
+                # Run ZAP scan — --user root fixes Permission denied on /zap/wrk/zap-report.html
                 $DOCKER run --rm \
+                  --user root \
                   --network host \
                   -v ${WORKSPACE}/results/multiapp/juiceshop:/zap/wrk:rw \
                   ${ZAP_IMAGE} \
@@ -248,13 +259,25 @@ pipeline {
                 for app in vulnapp dvwa juiceshop; do
                     echo "--- $app ---" >> results/multiapp/summary.txt
                     if [ -f "results/multiapp/$app/trivy-report.json" ]; then
-                        CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' results/multiapp/$app/trivy-report.json 2>/dev/null || echo "N/A")
-                        HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' results/multiapp/$app/trivy-report.json 2>/dev/null || echo "N/A")
-                        MED=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' results/multiapp/$app/trivy-report.json 2>/dev/null || echo "N/A")
+                        # Fix 2: Use [ -z ] guard so missing/empty values become 0, not N/A
+                        CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' \
+                            results/multiapp/$app/trivy-report.json 2>/dev/null)
+                        [ -z "$CRIT" ] && CRIT=0
+
+                        HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' \
+                            results/multiapp/$app/trivy-report.json 2>/dev/null)
+                        [ -z "$HIGH" ] && HIGH=0
+
+                        MED=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' \
+                            results/multiapp/$app/trivy-report.json 2>/dev/null)
+                        [ -z "$MED" ] && MED=0
+
                         echo "  Trivy CRITICAL=$CRIT HIGH=$HIGH MEDIUM=$MED" >> results/multiapp/summary.txt
                     fi
                     if [ -f "results/multiapp/$app/opa-config.json" ]; then
-                        VIOL=$(jq 'length' results/multiapp/$app/opa-config.json 2>/dev/null || echo "N/A")
+                        # Fix 3: Use // 0 fallback inside jq + guard for empty output
+                        VIOL=$(jq 'length // 0' results/multiapp/$app/opa-config.json 2>/dev/null)
+                        [ -z "$VIOL" ] && VIOL=0
                         echo "  OPA Config Violations=$VIOL" >> results/multiapp/summary.txt
                     fi
                     echo "" >> results/multiapp/summary.txt
