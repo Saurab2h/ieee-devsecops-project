@@ -193,6 +193,7 @@ pipeline {
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                     sh '''
                     START=$(date +%s)
+                    mkdir -p results/multiapp/vulnapp
                     chmod -R 777 results/multiapp
 
                     # Start vulnapp
@@ -203,11 +204,12 @@ pipeline {
                       vulnapp || true
                     sleep 15
 
-                    # Run ZAP (no bind mount to avoid Docker-in-Docker path mismatch)
-                    $DOCKER rm -f vulnapp-zap-scan || true
-                    $DOCKER run --name vulnapp-zap-scan \
+                    # Run ZAP with bind mount
+                    $DOCKER run --rm \
+                      --name vulnapp-zap-scan \
                       --user root \
                       --network host \
+                      -v "$PWD/results/multiapp/vulnapp:/zap/wrk" \
                       ${ZAP_IMAGE} \
                       zap-baseline.py \
                         -t http://localhost:8081 \
@@ -217,19 +219,10 @@ pipeline {
                         -l WARN \
                         -d || true
 
-                    # Copy reports out of container
-                    $DOCKER cp vulnapp-zap-scan:/zap/wrk/zap-report.html results/multiapp/vulnapp/ || true
-                    $DOCKER cp vulnapp-zap-scan:/zap/wrk/zap-report.json results/multiapp/vulnapp/ || true
-                    $DOCKER cp vulnapp-zap-scan:/zap/wrk/zap-report.xml results/multiapp/vulnapp/ || true
-
-                    $DOCKER rm -f vulnapp-zap-scan || true
                     $DOCKER rm -f vulnapp-scan-target || true
 
                     echo "--- ZAP Verification ---"
-                    pwd
-                    ls -lah
-                    ls -lah results/multiapp/vulnapp/ || true
-                    find . -name "*zap*"
+                    ls -lah results/multiapp/vulnapp || true
 
                     if [ ! -f "results/multiapp/vulnapp/zap-report.json" ]; then
                         echo "ERROR: ZAP report missing"
@@ -249,6 +242,7 @@ pipeline {
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                     sh '''
                     START=$(date +%s)
+                    mkdir -p results/multiapp/dvwa
                     chmod -R 777 results/multiapp
 
                     # Start DVWA
@@ -259,11 +253,12 @@ pipeline {
                       vulnerables/web-dvwa:latest || true
                     sleep 15
 
-                    # Run ZAP (no bind mount to avoid Docker-in-Docker path mismatch)
-                    $DOCKER rm -f dvwa-zap-scan || true
-                    $DOCKER run --name dvwa-zap-scan \
+                    # Run ZAP with bind mount
+                    $DOCKER run --rm \
+                      --name dvwa-zap-scan \
                       --user root \
                       --network host \
+                      -v "$PWD/results/multiapp/dvwa:/zap/wrk" \
                       ${ZAP_IMAGE} \
                       zap-baseline.py \
                         -t http://localhost:8082 \
@@ -273,19 +268,10 @@ pipeline {
                         -l WARN \
                         -d || true
 
-                    # Copy reports out of container
-                    $DOCKER cp dvwa-zap-scan:/zap/wrk/zap-report.html results/multiapp/dvwa/ || true
-                    $DOCKER cp dvwa-zap-scan:/zap/wrk/zap-report.json results/multiapp/dvwa/ || true
-                    $DOCKER cp dvwa-zap-scan:/zap/wrk/zap-report.xml results/multiapp/dvwa/ || true
-
-                    $DOCKER rm -f dvwa-zap-scan || true
                     $DOCKER rm -f dvwa-scan-target || true
 
                     echo "--- ZAP Verification ---"
-                    pwd
-                    ls -lah
-                    ls -lah results/multiapp/dvwa/ || true
-                    find . -name "*zap*"
+                    ls -lah results/multiapp/dvwa || true
 
                     if [ ! -f "results/multiapp/dvwa/zap-report.json" ]; then
                         echo "ERROR: ZAP report missing"
@@ -305,6 +291,7 @@ pipeline {
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                     sh '''
                     START=$(date +%s)
+                    mkdir -p results/multiapp/juiceshop
                     chmod -R 777 results/multiapp
 
                     # Start Juice Shop
@@ -315,11 +302,12 @@ pipeline {
                       bkimminich/juice-shop:latest || true
                     sleep 25
 
-                    # Run ZAP (no bind mount to avoid Docker-in-Docker path mismatch)
-                    $DOCKER rm -f juiceshop-zap-scan || true
-                    $DOCKER run --name juiceshop-zap-scan \
+                    # Run ZAP with bind mount
+                    $DOCKER run --rm \
+                      --name juiceshop-zap-scan \
                       --user root \
                       --network host \
+                      -v "$PWD/results/multiapp/juiceshop:/zap/wrk" \
                       ${ZAP_IMAGE} \
                       zap-baseline.py \
                         -t http://localhost:8083 \
@@ -329,19 +317,10 @@ pipeline {
                         -l WARN \
                         -d || true
 
-                    # Copy reports out of container
-                    $DOCKER cp juiceshop-zap-scan:/zap/wrk/zap-report.html results/multiapp/juiceshop/ || true
-                    $DOCKER cp juiceshop-zap-scan:/zap/wrk/zap-report.json results/multiapp/juiceshop/ || true
-                    $DOCKER cp juiceshop-zap-scan:/zap/wrk/zap-report.xml results/multiapp/juiceshop/ || true
-
-                    $DOCKER rm -f juiceshop-zap-scan || true
                     $DOCKER rm -f juiceshop-scan-target || true
 
                     echo "--- ZAP Verification ---"
-                    pwd
-                    ls -lah
-                    ls -lah results/multiapp/juiceshop/ || true
-                    find . -name "*zap*"
+                    ls -lah results/multiapp/juiceshop || true
 
                     if [ ! -f "results/multiapp/juiceshop/zap-report.json" ]; then
                         echo "ERROR: ZAP report missing"
