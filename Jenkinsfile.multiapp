@@ -196,6 +196,20 @@ pipeline {
                     mkdir -p results/multiapp/vulnapp
                     chmod -R 777 results/multiapp
 
+                    # Resolve Docker host path for the Jenkins workspace
+                    HOST_WORKSPACE=$(echo "$PWD" | sed 's|^/var/jenkins_home|/var/lib/docker/volumes/jenkins_home/_data|')
+                    echo "Mapped Host Path: $HOST_WORKSPACE"
+
+                    # Verify bind mount with a temporary touch
+                    $DOCKER run --rm -v "$HOST_WORKSPACE/results/multiapp/vulnapp:/zap/wrk" alpine touch /zap/wrk/test.txt
+                    if [ -f "results/multiapp/vulnapp/test.txt" ]; then
+                        echo "Mount verification successful!"
+                        rm results/multiapp/vulnapp/test.txt
+                    else
+                        echo "ERROR: Mount verification failed"
+                        exit 1
+                    fi
+
                     # Start vulnapp
                     $DOCKER rm -f vulnapp-scan-target || true
                     $DOCKER run -d \
@@ -204,12 +218,12 @@ pipeline {
                       vulnapp || true
                     sleep 15
 
-                    # Run ZAP with bind mount
+                    # Run ZAP with translated host bind mount
                     $DOCKER run --rm \
                       --name vulnapp-zap-scan \
                       --user root \
                       --network host \
-                      -v "$PWD/results/multiapp/vulnapp:/zap/wrk" \
+                      -v "$HOST_WORKSPACE/results/multiapp/vulnapp:/zap/wrk" \
                       ${ZAP_IMAGE} \
                       zap-baseline.py \
                         -t http://localhost:8081 \
@@ -245,6 +259,19 @@ pipeline {
                     mkdir -p results/multiapp/dvwa
                     chmod -R 777 results/multiapp
 
+                    # Resolve Docker host path for the Jenkins workspace
+                    HOST_WORKSPACE=$(echo "$PWD" | sed 's|^/var/jenkins_home|/var/lib/docker/volumes/jenkins_home/_data|')
+
+                    # Verify bind mount with a temporary touch
+                    $DOCKER run --rm -v "$HOST_WORKSPACE/results/multiapp/dvwa:/zap/wrk" alpine touch /zap/wrk/test.txt
+                    if [ -f "results/multiapp/dvwa/test.txt" ]; then
+                        echo "Mount verification successful!"
+                        rm results/multiapp/dvwa/test.txt
+                    else
+                        echo "ERROR: Mount verification failed"
+                        exit 1
+                    fi
+
                     # Start DVWA
                     $DOCKER rm -f dvwa-scan-target || true
                     $DOCKER run -d \
@@ -253,12 +280,12 @@ pipeline {
                       vulnerables/web-dvwa:latest || true
                     sleep 15
 
-                    # Run ZAP with bind mount
+                    # Run ZAP with translated host bind mount
                     $DOCKER run --rm \
                       --name dvwa-zap-scan \
                       --user root \
                       --network host \
-                      -v "$PWD/results/multiapp/dvwa:/zap/wrk" \
+                      -v "$HOST_WORKSPACE/results/multiapp/dvwa:/zap/wrk" \
                       ${ZAP_IMAGE} \
                       zap-baseline.py \
                         -t http://localhost:8082 \
@@ -294,6 +321,19 @@ pipeline {
                     mkdir -p results/multiapp/juiceshop
                     chmod -R 777 results/multiapp
 
+                    # Resolve Docker host path for the Jenkins workspace
+                    HOST_WORKSPACE=$(echo "$PWD" | sed 's|^/var/jenkins_home|/var/lib/docker/volumes/jenkins_home/_data|')
+
+                    # Verify bind mount with a temporary touch
+                    $DOCKER run --rm -v "$HOST_WORKSPACE/results/multiapp/juiceshop:/zap/wrk" alpine touch /zap/wrk/test.txt
+                    if [ -f "results/multiapp/juiceshop/test.txt" ]; then
+                        echo "Mount verification successful!"
+                        rm results/multiapp/juiceshop/test.txt
+                    else
+                        echo "ERROR: Mount verification failed"
+                        exit 1
+                    fi
+
                     # Start Juice Shop
                     $DOCKER rm -f juiceshop-scan-target || true
                     $DOCKER run -d \
@@ -302,12 +342,12 @@ pipeline {
                       bkimminich/juice-shop:latest || true
                     sleep 25
 
-                    # Run ZAP with bind mount
+                    # Run ZAP with translated host bind mount
                     $DOCKER run --rm \
                       --name juiceshop-zap-scan \
                       --user root \
                       --network host \
-                      -v "$PWD/results/multiapp/juiceshop:/zap/wrk" \
+                      -v "$HOST_WORKSPACE/results/multiapp/juiceshop:/zap/wrk" \
                       ${ZAP_IMAGE} \
                       zap-baseline.py \
                         -t http://localhost:8083 \
