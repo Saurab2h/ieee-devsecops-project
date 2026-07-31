@@ -1,0 +1,138 @@
+// ============================================================
+// Jenkinsfile.opa-negative-test
+//
+// PURPOSE: Demonstrate OPA gate blocking a deployment of a
+//          deliberately non-compliant Docker image.
+//
+// Expected result: Pipeline FAILS at 'OPA Docker Config Gate'
+// This is Figure 5 in the paper.
+// ============================================================
+
+pipeline {
+    agent any
+
+    environment {
+        DOCKER = "docker"
+        OPA    = "opa"
+        TRIVY  = "trivy"
+    }
+
+    stages {
+
+        stage('Prepare') {
+            steps {
+                sh 'mkdir -p results/opa-negative-test'
+            }
+        }
+
+        // Build the deliberately non-compliant image
+        stage('Build Non-Compliant Image') {
+            steps {
+                sh '''
+                echo "Building non-compliant image (root user, no EXPOSE)..."
+                $DOCKER build \
+                  -t vuln-noncompliant \
+                  -f app/vuln-noncompliant/Dockerfile \
+                  app/vuln-noncompliant/
+
+                echo "Image built. Inspecting..."
+                $DOCKER image inspect vuln-noncompliant \
+                  > results/opa-negative-test/noncompliant-image.json
+                '''
+            }
+        }
+
+        // Trivy scan — expected to show many CRITICAL CVEs (ubuntu:18.04)
+        stage('Trivy Scan (Non-Compliant)') {
+            steps {
+                sh '''
+                $TRIVY image \
+                  -f json \
+                  -o results/opa-negative-test/noncompliant-trivy.json \
+                  vuln-noncompliant || true
+
+                $TRIVY image \
+                  --format table \
+                  vuln-noncompliant \
+                  > results/opa-negative-test/noncompliant-trivy.txt || true
+                '''
+            }
+        }
+
+        // OPA Config Gate — EXPECTED TO BLOCK
+        stage('OPA Docker Config Gate') {
+            steps {
+                script {
+                    echo "=== OPA CONFIG GATE — NEGATIVE TEST ==="
+                    echo "Expected: BLOCKED (root user + no EXPOSE)"
+
+                    def violations = sh(
+                        script: '''
+                        $OPA eval \
+                          --input results/opa-negative-test/noncompliant-image.json \
+                          --data policies/docker.rego \
+                          --format raw \
+                          "data.devsecops.deny" \
+                          | tee results/opa-negative-test/config-violations.json \
+                          | jq length
+                        ''',
+                        returnStdout: true
+                    ).trim()
+
+                    sh "echo 'OPA Config Violations: ${violations}'"
+
+                    if (violations.toInteger() > 0) {
+                        def msgs = sh(
+                            script: '''$OPA eval \
+                              --input results/opa-negative-test/noncompliant-image.json \
+                              --data policies/docker.rego \
+                              --format raw "data.devsecops.deny" | jq -r '.[]' ''',
+                            returnStdout: true
+                        ).trim()
+
+                        // Save for paper/screenshot
+                        sh """
+                        echo '=== OPA GATE BLOCKED ===' > results/opa-negative-test/gate-block-evidence.txt
+                        echo 'Violations (${violations}):' >> results/opa-negative-test/gate-block-evidence.txt
+                        echo '${msgs}' >> results/opa-negative-test/gate-block-evidence.txt
+                        echo 'Deployment HALTED at OPA stage.' >> results/opa-negative-test/gate-block-evidence.txt
+                        """
+
+                        error("""
+╔══════════════════════════════════════════════════════════╗
+║  ❌  OPA CONFIG GATE — DEPLOYMENT BLOCKED (AS EXPECTED)  ║
+╚══════════════════════════════════════════════════════════╝
+${violations} policy violation(s) detected:
+
+${msgs}
+
+✅ This is the EXPECTED behavior — OPA correctly blocked
+   a non-compliant image from being deployed.
+
+📄 Evidence saved to: results/opa-negative-test/
+                        """)
+                    } else {
+                        // This shouldn't happen for the non-compliant image
+                        unstable("WARNING: OPA did not detect violations on a non-compliant image!")
+                    }
+                }
+            }
+        }
+
+        // This stage should NOT be reached
+        stage('Deploy (Should Not Run)') {
+            steps {
+                sh 'echo "ERROR: Deploy stage reached — OPA gate did not block!" && exit 1'
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'results/opa-negative-test/**', fingerprint: true
+        }
+        failure {
+            echo "Pipeline failed at OPA gate — this is the EXPECTED outcome for the negative test."
+        }
+    }
+}

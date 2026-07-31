@@ -1,0 +1,274 @@
+// ============================================================
+// Jenkinsfile.multiapp
+//
+// PURPOSE: Run the full DevSecOps pipeline on multiple apps
+//          to support tool complementarity analysis (N=3).
+//
+// Apps:
+//   1. vulnapp    — Custom Spring Boot app
+//   2. dvwa       — Damn Vulnerable Web Application
+//   3. juiceshop  — OWASP Juice Shop
+// ============================================================
+
+pipeline {
+    agent any
+
+    environment {
+        DOCKER    = "docker"
+        TRIVY     = "trivy"
+        OPA       = "opa"
+        ZAP_IMAGE = "ghcr.io/zaproxy/zaproxy:stable"
+    }
+
+    stages {
+
+        stage('Prepare') {
+            steps {
+                sh '''
+                mkdir -p results/multiapp/vulnapp
+                mkdir -p results/multiapp/dvwa
+                mkdir -p results/multiapp/juiceshop
+                echo "Multi-app run started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                '''
+            }
+        }
+
+        // ────────────────────────────────────────────────────────────
+        // APP 1: Custom Spring Boot vulnapp (already built)
+        // ────────────────────────────────────────────────────────────
+        stage('Trivy: vulnapp') {
+            steps {
+                sh '''
+                START=$(date +%s)
+
+                $TRIVY image \
+                  -f json \
+                  -o results/multiapp/vulnapp/trivy-report.json \
+                  vulnapp || true
+
+                $TRIVY image \
+                  --format table \
+                  vulnapp > results/multiapp/vulnapp/trivy-report.txt || true
+
+                END=$(date +%s)
+                echo "vulnapp_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
+                '''
+            }
+        }
+
+        stage('OPA Gate: vulnapp') {
+            steps {
+                script {
+                    sh '$DOCKER image inspect vulnapp > results/multiapp/vulnapp/image.json 2>/dev/null || true'
+                    sh '''
+                    $OPA eval \
+                      --input results/multiapp/vulnapp/image.json \
+                      --data policies/docker.rego \
+                      --format raw "data.devsecops.deny" \
+                      | tee results/multiapp/vulnapp/opa-config.json || true
+
+                    $OPA eval \
+                      --input results/multiapp/vulnapp/trivy-report.json \
+                      --data policies/severity-gate.rego \
+                      --format pretty "data.devsecops.severity.summary" \
+                      | tee results/multiapp/vulnapp/opa-severity.json || true
+                    '''
+                }
+            }
+        }
+
+        // ────────────────────────────────────────────────────────────
+        // APP 2: DVWA
+        // ────────────────────────────────────────────────────────────
+        stage('Pull & Scan: DVWA') {
+            steps {
+                sh '''
+                START=$(date +%s)
+
+                $DOCKER pull vulnerables/web-dvwa:latest || true
+
+                $TRIVY image \
+                  -f json \
+                  -o results/multiapp/dvwa/trivy-report.json \
+                  vulnerables/web-dvwa:latest || true
+
+                $TRIVY image \
+                  --format table \
+                  vulnerables/web-dvwa:latest > results/multiapp/dvwa/trivy-report.txt || true
+
+                END=$(date +%s)
+                echo "dvwa_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
+                '''
+            }
+        }
+
+        stage('OPA Gate: DVWA') {
+            steps {
+                sh '''
+                $DOCKER image inspect vulnerables/web-dvwa:latest \
+                  > results/multiapp/dvwa/image.json 2>/dev/null || true
+
+                $OPA eval \
+                  --input results/multiapp/dvwa/image.json \
+                  --data policies/docker.rego \
+                  --format raw "data.devsecops.deny" \
+                  | tee results/multiapp/dvwa/opa-config.json || true
+
+                $OPA eval \
+                  --input results/multiapp/dvwa/trivy-report.json \
+                  --data policies/severity-gate.rego \
+                  --format pretty "data.devsecops.severity.summary" \
+                  | tee results/multiapp/dvwa/opa-severity.json || true
+                '''
+            }
+        }
+
+        stage('ZAP DAST: DVWA') {
+            steps {
+                sh '''
+                START=$(date +%s)
+
+                # Start DVWA container
+                $DOCKER rm -f dvwa-scan-target || true
+                $DOCKER run -d \
+                  --name dvwa-scan-target \
+                  -p 8082:80 \
+                  vulnerables/web-dvwa:latest || true
+                sleep 15
+
+                # Run ZAP scan
+                $DOCKER run --rm \
+                  --network host \
+                  -v ${WORKSPACE}/results/multiapp/dvwa:/zap/wrk:rw \
+                  ${ZAP_IMAGE} \
+                  zap-baseline.py \
+                    -t http://localhost:8082 \
+                    -r zap-report.html \
+                    -J zap-report.json \
+                    -l WARN \
+                    -d || true
+
+                $DOCKER rm -f dvwa-scan-target || true
+
+                END=$(date +%s)
+                echo "dvwa_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
+                '''
+            }
+        }
+
+        // ────────────────────────────────────────────────────────────
+        // APP 3: OWASP Juice Shop
+        // ────────────────────────────────────────────────────────────
+        stage('Pull & Scan: Juice Shop') {
+            steps {
+                sh '''
+                START=$(date +%s)
+
+                $DOCKER pull bkimminich/juice-shop:latest || true
+
+                $TRIVY image \
+                  -f json \
+                  -o results/multiapp/juiceshop/trivy-report.json \
+                  bkimminich/juice-shop:latest || true
+
+                $TRIVY image \
+                  --format table \
+                  bkimminich/juice-shop:latest > results/multiapp/juiceshop/trivy-report.txt || true
+
+                END=$(date +%s)
+                echo "juiceshop_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
+                '''
+            }
+        }
+
+        stage('OPA Gate: Juice Shop') {
+            steps {
+                sh '''
+                $DOCKER image inspect bkimminich/juice-shop:latest \
+                  > results/multiapp/juiceshop/image.json 2>/dev/null || true
+
+                $OPA eval \
+                  --input results/multiapp/juiceshop/image.json \
+                  --data policies/docker.rego \
+                  --format raw "data.devsecops.deny" \
+                  | tee results/multiapp/juiceshop/opa-config.json || true
+
+                $OPA eval \
+                  --input results/multiapp/juiceshop/trivy-report.json \
+                  --data policies/severity-gate.rego \
+                  --format pretty "data.devsecops.severity.summary" \
+                  | tee results/multiapp/juiceshop/opa-severity.json || true
+                '''
+            }
+        }
+
+        stage('ZAP DAST: Juice Shop') {
+            steps {
+                sh '''
+                START=$(date +%s)
+
+                # Start Juice Shop container
+                $DOCKER rm -f juiceshop-scan-target || true
+                $DOCKER run -d \
+                  --name juiceshop-scan-target \
+                  -p 8083:3000 \
+                  bkimminich/juice-shop:latest || true
+                sleep 20  # Juice Shop takes longer to start
+
+                # Run ZAP scan
+                $DOCKER run --rm \
+                  --network host \
+                  -v ${WORKSPACE}/results/multiapp/juiceshop:/zap/wrk:rw \
+                  ${ZAP_IMAGE} \
+                  zap-baseline.py \
+                    -t http://localhost:8083 \
+                    -r zap-report.html \
+                    -J zap-report.json \
+                    -l WARN \
+                    -d || true
+
+                $DOCKER rm -f juiceshop-scan-target || true
+
+                END=$(date +%s)
+                echo "juiceshop_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
+                '''
+            }
+        }
+
+        // ────────────────────────────────────────────────────────────
+        // Aggregate Results for Paper Table
+        // ────────────────────────────────────────────────────────────
+        stage('Aggregate Results') {
+            steps {
+                sh '''
+                echo "=== MULTI-APP SCAN SUMMARY ===" > results/multiapp/summary.txt
+                echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> results/multiapp/summary.txt
+                echo "" >> results/multiapp/summary.txt
+
+                for app in vulnapp dvwa juiceshop; do
+                    echo "--- $app ---" >> results/multiapp/summary.txt
+                    if [ -f "results/multiapp/$app/trivy-report.json" ]; then
+                        CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' results/multiapp/$app/trivy-report.json 2>/dev/null || echo "N/A")
+                        HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' results/multiapp/$app/trivy-report.json 2>/dev/null || echo "N/A")
+                        MED=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' results/multiapp/$app/trivy-report.json 2>/dev/null || echo "N/A")
+                        echo "  Trivy CRITICAL=$CRIT HIGH=$HIGH MEDIUM=$MED" >> results/multiapp/summary.txt
+                    fi
+                    if [ -f "results/multiapp/$app/opa-config.json" ]; then
+                        VIOL=$(jq 'length' results/multiapp/$app/opa-config.json 2>/dev/null || echo "N/A")
+                        echo "  OPA Config Violations=$VIOL" >> results/multiapp/summary.txt
+                    fi
+                    echo "" >> results/multiapp/summary.txt
+                done
+
+                cat results/multiapp/summary.txt
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'results/multiapp/**', fingerprint: true
+        }
+    }
+}
