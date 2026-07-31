@@ -1,0 +1,92 @@
+========== MULTI APP SUMMARY =========
+Generated: 2026-07-31T20:17:50Z
+======================================
+
+VULNAPP
+
+Critical : 3
+High : 34
+Medium : 164
+
+OPA Violations : 1
+
+ZAP
+High Alerts 0
+Medium Alerts 0
+Low Alerts 2
+Info Alerts 1
+
+-------------------------------------
+
+DVWA
+
+Critical : 254
+High : 551
+Medium : 642
+
+OPA Violations : 2
+
+ZAP
+High Alerts 0
+Medium Alerts 3
+Low Alerts 11
+Info Alerts 6
+
+-------------------------------------
+
+JUICE SHOP
+
+Critical : 7
+High : 42
+Medium : 32
+
+OPA Violations : 1
+
+ZAP
+High Alerts 0
+Medium Alerts 2
+Low Alerts 5
+Info Alerts 3
+
+-------------------------------------
+
+==========================================
+  Timing (seconds per stage):
+vulnapp_trivy_seconds=4
+dvwa_trivy_seconds=11
+dvwa_zap_seconds=179
+juiceshop_trivy_seconds=24
+juiceshop_zap_seconds=67
+vulnapp_trivy_seconds=3
+dvwa_trivy_seconds=4
+dvwa_zap_seconds=45
+juiceshop_trivy_seconds=5
+juiceshop_zap_seconds=65
+vulnapp_trivy_seconds=4
+dvwa_trivy_seconds=4
+dvwa_zap_seconds=62
+juiceshop_trivy_seconds=4
+juiceshop_zap_seconds=81
+vulnapp_trivy_seconds=4
+dvwa_trivy_seconds=3
+dvwa_zap_seconds=46
+juiceshop_trivy_seconds=3
+juiceshop_zap_seconds=65
+vulnapp_trivy_seconds=4
+juiceshop_trivy_seconds=5
+dvwa_trivy_seconds=5
+dvwa_zap_seconds=51
+juiceshop_zap_seconds=73
+vulnapp_trivy_seconds=5
+dvwa_trivy_seconds=6
+juiceshop_trivy_seconds=6
+vulnapp_trivy_seconds=3
+juiceshop_trivy_seconds=4
+dvwa_trivy_seconds=4
+vulnapp_trivy_seconds=4
+juiceshop_trivy_seconds=4
+dvwa_trivy_seconds=5
+vulnapp_zap_seconds=49
+dvwa_zap_seconds=49
+juiceshop_zap_seconds=73
+==========================================
