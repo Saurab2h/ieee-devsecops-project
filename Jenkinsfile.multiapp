@@ -252,34 +252,74 @@ pipeline {
         stage('Aggregate Results') {
             steps {
                 sh '''
+                # ── Debug: environment diagnosis ─────────────────────────
+                echo "=== ENVIRONMENT DEBUG ==="
+                echo "PATH=$PATH"
+                command -v jq || echo "WARNING: jq binary not found in PATH"
+                jq --version 2>/dev/null || echo "WARNING: jq --version failed (not installed or not in PATH)"
+                echo ""
+                echo "=== FILES PRESENT ==="
+                ls -lah results/multiapp/ || true
+                find results/multiapp -name "*.json" 2>/dev/null || true
+                echo "========================"
+                echo ""
+
+                # ── Detect jq (absolute path to avoid PATH issues) ───────
+                JQ=$(command -v jq 2>/dev/null || true)
+                if [ -z "$JQ" ]; then
+                    echo "WARNING: jq not installed. Counts will default to 0."
+                    JQ_AVAILABLE=0
+                else
+                    echo "jq found at: $JQ"
+                    JQ_AVAILABLE=1
+                fi
+
+                # ── Helper: safely parse a jq expression ─────────────────
+                # Usage: safe_jq <file> <expression>
+                # Returns the numeric result, or 0 on any failure.
+                safe_jq() {
+                    _FILE="$1"
+                    _EXPR="$2"
+                    _RESULT=0
+                    if [ "$JQ_AVAILABLE" = "1" ] && [ -f "$_FILE" ] && [ -s "$_FILE" ]; then
+                        _OUT=$("$JQ" "$_EXPR" "$_FILE" 2>/dev/null)
+                        if [ $? -eq 0 ] && [ -n "$_OUT" ]; then
+                            _RESULT="$_OUT"
+                        fi
+                    fi
+                    echo "$_RESULT"
+                }
+
+                # ── Aggregate ─────────────────────────────────────────────
                 echo "=== MULTI-APP SCAN SUMMARY ===" > results/multiapp/summary.txt
                 echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> results/multiapp/summary.txt
                 echo "" >> results/multiapp/summary.txt
 
                 for app in vulnapp dvwa juiceshop; do
                     echo "--- $app ---" >> results/multiapp/summary.txt
-                    if [ -f "results/multiapp/$app/trivy-report.json" ]; then
-                        # Fix 2: Use [ -z ] guard so missing/empty values become 0, not N/A
-                        CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' \
-                            results/multiapp/$app/trivy-report.json 2>/dev/null)
-                        [ -z "$CRIT" ] && CRIT=0
 
-                        HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' \
-                            results/multiapp/$app/trivy-report.json 2>/dev/null)
-                        [ -z "$HIGH" ] && HIGH=0
+                    TRIVY_FILE="results/multiapp/$app/trivy-report.json"
+                    OPA_FILE="results/multiapp/$app/opa-config.json"
 
-                        MED=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' \
-                            results/multiapp/$app/trivy-report.json 2>/dev/null)
-                        [ -z "$MED" ] && MED=0
-
+                    if [ -f "$TRIVY_FILE" ]; then
+                        CRIT=$(safe_jq "$TRIVY_FILE" \
+                            '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length')
+                        HIGH=$(safe_jq "$TRIVY_FILE" \
+                            '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length')
+                        MED=$(safe_jq  "$TRIVY_FILE" \
+                            '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length')
                         echo "  Trivy CRITICAL=$CRIT HIGH=$HIGH MEDIUM=$MED" >> results/multiapp/summary.txt
+                    else
+                        echo "  Trivy report not found: $TRIVY_FILE" >> results/multiapp/summary.txt
                     fi
-                    if [ -f "results/multiapp/$app/opa-config.json" ]; then
-                        # Fix 3: Use // 0 fallback inside jq + guard for empty output
-                        VIOL=$(jq 'length // 0' results/multiapp/$app/opa-config.json 2>/dev/null)
-                        [ -z "$VIOL" ] && VIOL=0
+
+                    if [ -f "$OPA_FILE" ]; then
+                        VIOL=$(safe_jq "$OPA_FILE" 'length // 0')
                         echo "  OPA Config Violations=$VIOL" >> results/multiapp/summary.txt
+                    else
+                        echo "  OPA report not found: $OPA_FILE" >> results/multiapp/summary.txt
                     fi
+
                     echo "" >> results/multiapp/summary.txt
                 done
 
