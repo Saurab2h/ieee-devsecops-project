@@ -11,7 +11,9 @@
 #   - Semgrep      (SAST)
 # ============================================================
 
-FROM jenkins/jenkins:lts-jdk17
+# NOTE: Base image matches the running container (my-jenkins-k8s, Debian 13 trixie).
+# To rebuild: docker build -t my-jenkins-k8s:latest ./jenkins/
+FROM my-jenkins-k8s:latest
 
 USER root
 
