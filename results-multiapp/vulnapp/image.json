@@ -1,0 +1,77 @@
+[
+    {
+        "Architecture": "arm64",
+        "Author": "",
+        "Comment": "buildkit.dockerfile.v0",
+        "Config": {
+            "AttachStderr": false,
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "Cmd": null,
+            "Domainname": "",
+            "Entrypoint": [
+                "java",
+                "-jar",
+                "app.jar"
+            ],
+            "Env": [
+                "PATH=/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "JAVA_HOME=/opt/java/openjdk",
+                "LANG=en_US.UTF-8",
+                "LANGUAGE=en_US:en",
+                "LC_ALL=en_US.UTF-8",
+                "JAVA_VERSION=jdk-17.0.19+10"
+            ],
+            "ExposedPorts": {
+                "8080/tcp": {}
+            },
+            "Hostname": "",
+            "Image": "",
+            "Labels": {
+                "org.opencontainers.image.created": "2026-04-21T15:27:26.117874+00:00",
+                "org.opencontainers.image.description": "The Ubuntu container image maintained by Canonical\n\nUbuntu is a Debian-based Linux operating system that runs from the desktop to the cloud, to all your internet connected things.\nIt is the world's most popular operating system across public clouds and OpenStack clouds.\nIt is the number one platform for containers; from Docker to Kubernetes to LXD, Ubuntu can run your containers at scale.\nFast, secure and simple, Ubuntu powers millions of PCs worldwide.\n",
+                "org.opencontainers.image.title": "ubuntu",
+                "org.opencontainers.image.version": "26.04"
+            },
+            "OnBuild": null,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Tty": false,
+            "User": "",
+            "Volumes": null,
+            "WorkingDir": "/app"
+        },
+        "Created": "2026-05-24T06:32:25.07118526Z",
+        "DockerVersion": "",
+        "GraphDriver": {
+            "Data": null,
+            "Name": "overlayfs"
+        },
+        "Id": "sha256:ba0f975aead086d5f03cda42aa56c07bc7fe8c54bf08b802719b6c7eec7bede7",
+        "Metadata": {
+            "LastTagTime": "2026-05-24T06:32:25.436904801Z"
+        },
+        "Os": "linux",
+        "Parent": "",
+        "RepoDigests": [
+            "vulnapp@sha256:ba0f975aead086d5f03cda42aa56c07bc7fe8c54bf08b802719b6c7eec7bede7"
+        ],
+        "RepoTags": [
+            "vulnapp:latest"
+        ],
+        "RootFS": {
+            "Layers": [
+                "sha256:5cde16a3f2e15fb91f1e3d4002774c76fa956655928f652e9156d5bb63a2ad2f",
+                "sha256:275233e882bbec676f42159b4909463115d4b5cef13410756a3918679a87cef8",
+                "sha256:7c3a4a63e48055321a0d587e399faed8e7cb191d4f33b5aa07ec042f3c0ec15c",
+                "sha256:9146cbc551c3d6e0c1d6300c7941f60a30474ff56237486c4de2878457f3a5fe",
+                "sha256:18529932aacdadc10b246b896ffce269fcb456db78c4ef00999847b3c796b147",
+                "sha256:fb130fe380ec44dd25ba382e6b634e3caef2cd209084c00cba00059158893427",
+                "sha256:ad1c61d1627e061cb4b2d0998da0516e9beca7aeebbe11120e282376a89970c5",
+                "sha256:4a0cd42f527bd1ec3de4a672aa67398f25659dada48a30c504ae870b98e9cb85"
+            ],
+            "Type": "layers"
+        },
+        "Size": 126674507
+    }
+]

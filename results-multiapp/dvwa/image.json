@@ -1,0 +1,68 @@
+[
+    {
+        "Architecture": "amd64",
+        "Author": "",
+        "Comment": "",
+        "Config": {
+            "ArgsEscaped": true,
+            "AttachStderr": false,
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "Cmd": null,
+            "Domainname": "",
+            "Entrypoint": [
+                "/main.sh"
+            ],
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            ],
+            "ExposedPorts": {
+                "80/tcp": {}
+            },
+            "Hostname": "",
+            "Image": "",
+            "Labels": {
+                "maintainer": "opsxcq@strm.sh"
+            },
+            "OnBuild": null,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Tty": false,
+            "User": "",
+            "Volumes": null,
+            "WorkingDir": ""
+        },
+        "Created": "2018-10-12T17:49:01.240444043Z",
+        "DockerVersion": "",
+        "GraphDriver": {
+            "Data": null,
+            "Name": "overlayfs"
+        },
+        "Id": "sha256:dae203fe11646a86937bf04db0079adef295f426da68a92b40e3b181f337daa7",
+        "Metadata": {
+            "LastTagTime": "2026-07-31T20:14:55.855411639Z"
+        },
+        "Os": "linux",
+        "Parent": "",
+        "RepoDigests": [
+            "vulnerables/web-dvwa@sha256:dae203fe11646a86937bf04db0079adef295f426da68a92b40e3b181f337daa7"
+        ],
+        "RepoTags": [
+            "vulnerables/web-dvwa:latest"
+        ],
+        "RootFS": {
+            "Layers": [
+                "sha256:a75caa09eb1f7d732568c5d54de42819973958589702d415202469a550ffd0ea",
+                "sha256:80f9a8427b1826f014f873dc471b6a89916ff79550bcd1c94aadd78c3f5bbdc7",
+                "sha256:97a1040801c3e87c036ef26da36a8dcbce61c0c8a6b4b3c8d9dda3409e7dfffe",
+                "sha256:acf8abb873cedff7e2aad9da561c592a5aac1938cb2bf0f8c4f6c97406c92a17",
+                "sha256:9713610e6ec4cbca7ade219f3efc5df93bd74b21d60c4754d6f400dad226f02f",
+                "sha256:73e92d5f2a6cf8a95578e6191222aaa8ade9a5cd792e9b3ed8a2b6a023bb8259",
+                "sha256:585e40f29c46d8ef2ecbccb870654b76e0910da9123bff93457011eebbc5cf6c",
+                "sha256:deeea3c4d56f1bbb10d3bd44879305d2fbef6678aa6c20947bd99576fe85fd45"
+            ],
+            "Type": "layers"
+        },
+        "Size": 178370991
+    }
+]

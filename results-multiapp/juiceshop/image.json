@@ -1,0 +1,98 @@
+[
+    {
+        "Architecture": "arm64",
+        "Author": "",
+        "Comment": "buildkit.dockerfile.v0",
+        "Config": {
+            "ArgsEscaped": true,
+            "AttachStderr": false,
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "Cmd": [
+                "/juice-shop/build/app.js"
+            ],
+            "Domainname": "",
+            "Entrypoint": [
+                "/nodejs/bin/node"
+            ],
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"
+            ],
+            "ExposedPorts": {
+                "3000/tcp": {}
+            },
+            "Hostname": "",
+            "Image": "",
+            "Labels": {
+                "maintainer": "Bjoern Kimminich <bjoern.kimminich@owasp.org>",
+                "org.opencontainers.image.authors": "Bjoern Kimminich <bjoern.kimminich@owasp.org>",
+                "org.opencontainers.image.created": "”2026-06-23T23:18:24Z”",
+                "org.opencontainers.image.description": "Probably the most modern and sophisticated insecure web application",
+                "org.opencontainers.image.documentation": "https://help.owasp-juice.shop",
+                "org.opencontainers.image.licenses": "MIT",
+                "org.opencontainers.image.revision": "df1b6bb",
+                "org.opencontainers.image.source": "https://github.com/juice-shop/juice-shop",
+                "org.opencontainers.image.title": "OWASP Juice Shop",
+                "org.opencontainers.image.url": "https://owasp-juice.shop",
+                "org.opencontainers.image.vendor": "Open Worldwide Application Security Project",
+                "org.opencontainers.image.version": "20.1.1"
+            },
+            "OnBuild": null,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Tty": false,
+            "User": "65532",
+            "Volumes": null,
+            "WorkingDir": "/juice-shop"
+        },
+        "Created": "2026-06-23T23:42:49.688576671Z",
+        "DockerVersion": "",
+        "GraphDriver": {
+            "Data": null,
+            "Name": "overlayfs"
+        },
+        "Id": "sha256:e68144772ebaaca0ec117b38d44903af92416793230288ef7c5437fc4f26850a",
+        "Metadata": {
+            "LastTagTime": "2026-07-31T20:14:56.909034958Z"
+        },
+        "Os": "linux",
+        "Parent": "",
+        "RepoDigests": [
+            "bkimminich/juice-shop@sha256:e68144772ebaaca0ec117b38d44903af92416793230288ef7c5437fc4f26850a"
+        ],
+        "RepoTags": [
+            "bkimminich/juice-shop:latest"
+        ],
+        "RootFS": {
+            "Layers": [
+                "sha256:8c1a7c4365a2a1ae8d7f361675388c8094a9f30514d9dfc0e06682f9367e759f",
+                "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+                "sha256:c8b007d0206e4b10ed4d3b3d99dfeab47c2648e82011989fd78a5731baf33fc3",
+                "sha256:bec7e6bb35e05d1284f28b10d2150c259717d91c658c4c10c08424bb9466caba",
+                "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+                "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+                "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+                "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+                "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+                "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+                "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+                "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+                "sha256:5fd2536c39c0700be8b7b4344e375196da2f126842fd8ede66996a18860a3890",
+                "sha256:5c729492ffc6d588d59ee068eaa7910f2c76fd99a7fc21ccb6d408351f48d428",
+                "sha256:72956fd1eb37d6802c3518bac58a3d138be3386834967797df1a3b851c0fc3db",
+                "sha256:91213e6dc2fda431a0de4541602a933c7a48206a0bf487217fa681260fccdc23",
+                "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+                "sha256:7578331450f7cd6e1f6f28caf2ce9af93ea935a049132bb63ed523dcbda068e4",
+                "sha256:323c2be748e4417f7ab7b05b33d6c1a52df0788e779143555109ddcd5325c76c",
+                "sha256:fcb0c313318aac64dde0e0574b4df3394902929eb62d43e8b6c47ec4562f170d",
+                "sha256:30884b21b6a1362fbcdb60743280a138148b6d0ac50a3f8ee3e9f213b371c9e7",
+                "sha256:63cf3ea8cd5465ac9a31a0995e31a2310eb8025447bdfebb882c4adfef6bd04a",
+                "sha256:a082cc640972e89c9e23a6d4d134b4370a399753f98e052e80ae4294ce5b6b39",
+                "sha256:54f395241b212deb8dbe777adbb612c0d60418d48518e8fa379a5647863ba8e6"
+            ],
+            "Type": "layers"
+        },
+        "Size": 116131575
+    }
+]

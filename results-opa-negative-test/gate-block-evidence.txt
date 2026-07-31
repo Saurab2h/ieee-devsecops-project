@@ -1,0 +1,5 @@
+=== OPA GATE BLOCKED ===
+Violations (2):
+POLICY VIOLATION [A05:2021]: Required application port 8080/tcp is not declared via EXPOSE.
+POLICY VIOLATION [CWE-269]: Container USER is empty. Set a non-root USER in Dockerfile.
+Deployment HALTED at OPA stage.

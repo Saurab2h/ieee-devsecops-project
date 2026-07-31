@@ -1,0 +1,63 @@
+[
+    {
+        "Architecture": "arm64",
+        "Author": "",
+        "Comment": "buildkit.dockerfile.v0",
+        "Config": {
+            "AttachStderr": false,
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "Cmd": null,
+            "Domainname": "",
+            "Entrypoint": [
+                "/bin/bash",
+                "-c",
+                "echo 'Non-compliant app running as root' && sleep infinity"
+            ],
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            ],
+            "Hostname": "",
+            "Image": "",
+            "Labels": {
+                "org.opencontainers.image.ref.name": "ubuntu",
+                "org.opencontainers.image.version": "18.04"
+            },
+            "OnBuild": null,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Tty": false,
+            "User": "",
+            "Volumes": null,
+            "WorkingDir": "/app"
+        },
+        "Created": "2026-07-31T16:10:36.701539172Z",
+        "DockerVersion": "",
+        "GraphDriver": {
+            "Data": null,
+            "Name": "overlayfs"
+        },
+        "Id": "sha256:b22e3f7f2a6d31f35764c1ca8ffbed65e69a89ad768fba70dbaf9d6b7cfb59fd",
+        "Metadata": {
+            "LastTagTime": "2026-07-31T20:29:52.66006422Z"
+        },
+        "Os": "linux",
+        "Parent": "",
+        "RepoDigests": [
+            "vuln-noncompliant@sha256:b22e3f7f2a6d31f35764c1ca8ffbed65e69a89ad768fba70dbaf9d6b7cfb59fd"
+        ],
+        "RepoTags": [
+            "vuln-noncompliant:latest"
+        ],
+        "RootFS": {
+            "Layers": [
+                "sha256:c09969dbc5e84ea45848232c61ee613e2283d20a03d72bb98bc819d2fbeb3218",
+                "sha256:6ac00cc636aceb1141be6394c7909f74700ca1a3b85b2c8c5790ce1bc3f57263",
+                "sha256:4cb937069fec0a53f1ecc4fbcada81b92248a558de9cd2fdc556917a926cda5e",
+                "sha256:fe1d25c7a66e850dce1eb966640d0dac4a9eaf87278803a366cca6b444a36827"
+            ],
+            "Type": "layers"
+        },
+        "Size": 28130429
+    }
+]

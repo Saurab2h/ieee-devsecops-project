@@ -1,0 +1,1 @@
+["POLICY VIOLATION [CWE-269]: Container USER is empty. Set a non-root USER in Dockerfile."]
