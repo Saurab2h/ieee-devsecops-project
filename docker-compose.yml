@@ -1,0 +1,46 @@
+version: "3.8"
+
+# ============================================================
+# docker-compose.yml — Jenkins DevSecOps Stack
+#
+# Usage:
+#   docker-compose up -d          # start Jenkins
+#   docker-compose down           # stop Jenkins
+#   docker-compose build jenkins  # rebuild after Dockerfile changes
+#
+# Jenkins UI: http://localhost:8080
+# ============================================================
+
+services:
+
+  jenkins:
+    build:
+      context: ./jenkins
+      dockerfile: Dockerfile
+    image: devsecops-jenkins:latest
+    container_name: jenkins
+    restart: unless-stopped
+
+    ports:
+      - "8080:8080"    # Jenkins UI
+      - "50000:50000"  # Agent JNLP port
+
+    volumes:
+      # Persist Jenkins home across restarts
+      - jenkins_home:/var/jenkins_home
+      # Mount Docker socket so Jenkins can run Docker commands on the host
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount the project workspace directly so pipelines can reference it
+      - .:/workspace
+
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
+
+    # Give Jenkins access to the docker group on the host
+    group_add:
+      - "${DOCKER_GID:-999}"
+
+volumes:
+  jenkins_home:
+    driver: local

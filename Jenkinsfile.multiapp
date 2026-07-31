@@ -1,13 +1,21 @@
 // ============================================================
 // Jenkinsfile.multiapp
 //
-// PURPOSE: Run the full DevSecOps pipeline on multiple apps
-//          to support tool complementarity analysis (N=3).
+// PURPOSE: Run the full DevSecOps pipeline on N=3 applications
+//          to support tool complementarity and security-velocity
+//          research questions for the IEEE paper.
 //
 // Apps:
-//   1. vulnapp    — Custom Spring Boot app
-//   2. dvwa       — Damn Vulnerable Web Application
-//   3. juiceshop  — OWASP Juice Shop
+//   1. vulnapp    — Custom Spring Boot app (pre-built)
+//   2. dvwa       — Damn Vulnerable Web Application (PHP)
+//   3. juiceshop  — OWASP Juice Shop (Node.js)
+//
+// Stages:
+//   Prepare          → verify jq, create dirs, pre-pull ZAP image
+//   Parallel Scans   → Trivy + OPA for all 3 apps simultaneously
+//   ZAP DAST         → ZAP baseline scan for DVWA and Juice Shop
+//   Aggregate        → real jq counts from JSON reports → summary.txt
+//   Archive          → all reports archived as Jenkins artifacts
 // ============================================================
 
 pipeline {
@@ -22,119 +30,171 @@ pipeline {
 
     stages {
 
+        // ── Stage 0: Prepare ──────────────────────────────────────────
         stage('Prepare') {
             steps {
                 sh '''
+                echo "============================================="
+                echo " Multi-App DevSecOps Pipeline"
+                echo " Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                echo "============================================="
+
+                # Create result directories
                 mkdir -p results/multiapp/vulnapp
                 mkdir -p results/multiapp/dvwa
                 mkdir -p results/multiapp/juiceshop
-                echo "Multi-app run started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                chmod -R 777 results/multiapp
 
-                # Fix 4: Pre-pull ZAP image once so scan stages don't re-download it
-                docker pull ghcr.io/zaproxy/zaproxy:stable || true
+                # ── Verify jq is installed (FAIL FAST if missing) ────────
+                echo "--- Verifying required tools ---"
+                which jq
+                jq --version
+                echo "jq OK"
+
+                # Pre-pull ZAP image once (saves time in scan stages)
+                docker pull ${ZAP_IMAGE} || true
+
+                echo "Prepare complete."
                 '''
             }
         }
 
-        // ────────────────────────────────────────────────────────────
-        // APP 1: Custom Spring Boot vulnapp (already built)
-        // ────────────────────────────────────────────────────────────
-        stage('Trivy: vulnapp') {
-            steps {
-                sh '''
-                START=$(date +%s)
+        // ── Stage 1: Parallel Trivy + OPA Scans ───────────────────────
+        // All 3 apps are scanned simultaneously to save time.
+        stage('Parallel Trivy + OPA Scans') {
+            parallel {
 
-                $TRIVY image \
-                  -f json \
-                  -o results/multiapp/vulnapp/trivy-report.json \
-                  vulnapp || true
+                // ── vulnapp ───────────────────────────────────────────
+                stage('Scan: vulnapp') {
+                    steps {
+                        sh '''
+                        echo "--- Trivy: vulnapp ---"
+                        START=$(date +%s)
 
-                $TRIVY image \
-                  --format table \
-                  vulnapp > results/multiapp/vulnapp/trivy-report.txt || true
+                        $TRIVY image \
+                          -f json \
+                          -o results/multiapp/vulnapp/trivy-report.json \
+                          vulnapp
 
-                END=$(date +%s)
-                echo "vulnapp_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
-                '''
-            }
-        }
+                        $TRIVY image \
+                          --format table \
+                          vulnapp > results/multiapp/vulnapp/trivy-report.txt || true
 
-        stage('OPA Gate: vulnapp') {
-            steps {
-                script {
-                    sh '$DOCKER image inspect vulnapp > results/multiapp/vulnapp/image.json 2>/dev/null || true'
-                    sh '''
-                    $OPA eval \
-                      --input results/multiapp/vulnapp/image.json \
-                      --data policies/docker.rego \
-                      --format raw "data.devsecops.deny" \
-                      | tee results/multiapp/vulnapp/opa-config.json || true
+                        END=$(date +%s)
+                        echo "vulnapp_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
+                        echo "Trivy vulnapp done in $((END-START))s"
 
-                    $OPA eval \
-                      --input results/multiapp/vulnapp/trivy-report.json \
-                      --data policies/severity-gate.rego \
-                      --format pretty "data.devsecops.severity.summary" \
-                      | tee results/multiapp/vulnapp/opa-severity.json || true
-                    '''
+                        echo "--- OPA: vulnapp ---"
+                        $DOCKER image inspect vulnapp \
+                          > results/multiapp/vulnapp/image.json 2>/dev/null || true
+
+                        $OPA eval \
+                          --input results/multiapp/vulnapp/image.json \
+                          --data policies/docker.rego \
+                          --format raw "data.devsecops.deny" \
+                          | tee results/multiapp/vulnapp/opa-config.json || true
+
+                        $OPA eval \
+                          --input results/multiapp/vulnapp/trivy-report.json \
+                          --data policies/severity-gate.rego \
+                          --format pretty "data.devsecops.severity" \
+                          | tee results/multiapp/vulnapp/opa-severity.json || true
+                        '''
+                    }
+                }
+
+                // ── DVWA ─────────────────────────────────────────────
+                stage('Scan: DVWA') {
+                    steps {
+                        sh '''
+                        echo "--- Pull + Trivy: DVWA ---"
+                        START=$(date +%s)
+
+                        $DOCKER pull vulnerables/web-dvwa:latest || true
+
+                        $TRIVY image \
+                          -f json \
+                          -o results/multiapp/dvwa/trivy-report.json \
+                          vulnerables/web-dvwa:latest
+
+                        $TRIVY image \
+                          --format table \
+                          vulnerables/web-dvwa:latest > results/multiapp/dvwa/trivy-report.txt || true
+
+                        END=$(date +%s)
+                        echo "dvwa_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
+                        echo "Trivy DVWA done in $((END-START))s"
+
+                        echo "--- OPA: DVWA ---"
+                        $DOCKER image inspect vulnerables/web-dvwa:latest \
+                          > results/multiapp/dvwa/image.json 2>/dev/null || true
+
+                        $OPA eval \
+                          --input results/multiapp/dvwa/image.json \
+                          --data policies/docker.rego \
+                          --format raw "data.devsecops.deny" \
+                          | tee results/multiapp/dvwa/opa-config.json || true
+
+                        $OPA eval \
+                          --input results/multiapp/dvwa/trivy-report.json \
+                          --data policies/severity-gate.rego \
+                          --format pretty "data.devsecops.severity" \
+                          | tee results/multiapp/dvwa/opa-severity.json || true
+                        '''
+                    }
+                }
+
+                // ── Juice Shop ───────────────────────────────────────
+                stage('Scan: Juice Shop') {
+                    steps {
+                        sh '''
+                        echo "--- Pull + Trivy: Juice Shop ---"
+                        START=$(date +%s)
+
+                        $DOCKER pull bkimminich/juice-shop:latest || true
+
+                        $TRIVY image \
+                          -f json \
+                          -o results/multiapp/juiceshop/trivy-report.json \
+                          bkimminich/juice-shop:latest
+
+                        $TRIVY image \
+                          --format table \
+                          bkimminich/juice-shop:latest > results/multiapp/juiceshop/trivy-report.txt || true
+
+                        END=$(date +%s)
+                        echo "juiceshop_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
+                        echo "Trivy Juice Shop done in $((END-START))s"
+
+                        echo "--- OPA: Juice Shop ---"
+                        $DOCKER image inspect bkimminich/juice-shop:latest \
+                          > results/multiapp/juiceshop/image.json 2>/dev/null || true
+
+                        $OPA eval \
+                          --input results/multiapp/juiceshop/image.json \
+                          --data policies/docker.rego \
+                          --format raw "data.devsecops.deny" \
+                          | tee results/multiapp/juiceshop/opa-config.json || true
+
+                        $OPA eval \
+                          --input results/multiapp/juiceshop/trivy-report.json \
+                          --data policies/severity-gate.rego \
+                          --format pretty "data.devsecops.severity" \
+                          | tee results/multiapp/juiceshop/opa-severity.json || true
+                        '''
+                    }
                 }
             }
         }
 
-        // ────────────────────────────────────────────────────────────
-        // APP 2: DVWA
-        // ────────────────────────────────────────────────────────────
-        stage('Pull & Scan: DVWA') {
-            steps {
-                sh '''
-                START=$(date +%s)
-
-                $DOCKER pull vulnerables/web-dvwa:latest || true
-
-                $TRIVY image \
-                  -f json \
-                  -o results/multiapp/dvwa/trivy-report.json \
-                  vulnerables/web-dvwa:latest || true
-
-                $TRIVY image \
-                  --format table \
-                  vulnerables/web-dvwa:latest > results/multiapp/dvwa/trivy-report.txt || true
-
-                END=$(date +%s)
-                echo "dvwa_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
-                '''
-            }
-        }
-
-        stage('OPA Gate: DVWA') {
-            steps {
-                sh '''
-                $DOCKER image inspect vulnerables/web-dvwa:latest \
-                  > results/multiapp/dvwa/image.json 2>/dev/null || true
-
-                $OPA eval \
-                  --input results/multiapp/dvwa/image.json \
-                  --data policies/docker.rego \
-                  --format raw "data.devsecops.deny" \
-                  | tee results/multiapp/dvwa/opa-config.json || true
-
-                $OPA eval \
-                  --input results/multiapp/dvwa/trivy-report.json \
-                  --data policies/severity-gate.rego \
-                  --format pretty "data.devsecops.severity.summary" \
-                  | tee results/multiapp/dvwa/opa-severity.json || true
-                '''
-            }
-        }
-
+        // ── Stage 2: ZAP DAST (sequential — port isolation) ──────────
         stage('ZAP DAST: DVWA') {
             steps {
                 sh '''
                 START=$(date +%s)
+                chmod -R 777 results/multiapp
 
-                # Fix 1: Ensure ZAP container can write reports to the mounted volume
-                chmod -R 777 ${WORKSPACE}/results
-
-                # Start DVWA container
+                # Start DVWA
                 $DOCKER rm -f dvwa-scan-target || true
                 $DOCKER run -d \
                   --name dvwa-scan-target \
@@ -142,7 +202,7 @@ pipeline {
                   vulnerables/web-dvwa:latest || true
                 sleep 15
 
-                # Run ZAP scan — --user root fixes Permission denied on /zap/wrk/zap-report.html
+                # ZAP scan — --user root avoids Permission denied on /zap/wrk/
                 $DOCKER run --rm \
                   --user root \
                   --network host \
@@ -152,6 +212,7 @@ pipeline {
                     -t http://localhost:8082 \
                     -r zap-report.html \
                     -J zap-report.json \
+                    -x zap-report.xml \
                     -l WARN \
                     -d || true
 
@@ -159,52 +220,7 @@ pipeline {
 
                 END=$(date +%s)
                 echo "dvwa_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
-                '''
-            }
-        }
-
-        // ────────────────────────────────────────────────────────────
-        // APP 3: OWASP Juice Shop
-        // ────────────────────────────────────────────────────────────
-        stage('Pull & Scan: Juice Shop') {
-            steps {
-                sh '''
-                START=$(date +%s)
-
-                $DOCKER pull bkimminich/juice-shop:latest || true
-
-                $TRIVY image \
-                  -f json \
-                  -o results/multiapp/juiceshop/trivy-report.json \
-                  bkimminich/juice-shop:latest || true
-
-                $TRIVY image \
-                  --format table \
-                  bkimminich/juice-shop:latest > results/multiapp/juiceshop/trivy-report.txt || true
-
-                END=$(date +%s)
-                echo "juiceshop_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
-                '''
-            }
-        }
-
-        stage('OPA Gate: Juice Shop') {
-            steps {
-                sh '''
-                $DOCKER image inspect bkimminich/juice-shop:latest \
-                  > results/multiapp/juiceshop/image.json 2>/dev/null || true
-
-                $OPA eval \
-                  --input results/multiapp/juiceshop/image.json \
-                  --data policies/docker.rego \
-                  --format raw "data.devsecops.deny" \
-                  | tee results/multiapp/juiceshop/opa-config.json || true
-
-                $OPA eval \
-                  --input results/multiapp/juiceshop/trivy-report.json \
-                  --data policies/severity-gate.rego \
-                  --format pretty "data.devsecops.severity.summary" \
-                  | tee results/multiapp/juiceshop/opa-severity.json || true
+                echo "ZAP DVWA done in $((END-START))s"
                 '''
             }
         }
@@ -213,19 +229,17 @@ pipeline {
             steps {
                 sh '''
                 START=$(date +%s)
+                chmod -R 777 results/multiapp
 
-                # Fix 1: Ensure ZAP container can write reports to the mounted volume
-                chmod -R 777 ${WORKSPACE}/results
-
-                # Start Juice Shop container
+                # Start Juice Shop
                 $DOCKER rm -f juiceshop-scan-target || true
                 $DOCKER run -d \
                   --name juiceshop-scan-target \
                   -p 8083:3000 \
                   bkimminich/juice-shop:latest || true
-                sleep 20  # Juice Shop takes longer to start
+                sleep 25
 
-                # Run ZAP scan — --user root fixes Permission denied on /zap/wrk/zap-report.html
+                # ZAP scan — --user root avoids Permission denied on /zap/wrk/
                 $DOCKER run --rm \
                   --user root \
                   --network host \
@@ -235,6 +249,7 @@ pipeline {
                     -t http://localhost:8083 \
                     -r zap-report.html \
                     -J zap-report.json \
+                    -x zap-report.xml \
                     -l WARN \
                     -d || true
 
@@ -242,96 +257,132 @@ pipeline {
 
                 END=$(date +%s)
                 echo "juiceshop_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
+                echo "ZAP Juice Shop done in $((END-START))s"
                 '''
             }
         }
 
-        // ────────────────────────────────────────────────────────────
-        // Aggregate Results for Paper Table
-        // ────────────────────────────────────────────────────────────
+        // ── Stage 3: Aggregate Results ────────────────────────────────
+        // jq is verified present in Prepare — no fallback needed.
+        // If jq is missing the Prepare stage already failed the build.
         stage('Aggregate Results') {
             steps {
                 sh '''
-                # ── Debug: environment diagnosis ─────────────────────────
-                echo "=== ENVIRONMENT DEBUG ==="
-                echo "PATH=$PATH"
-                command -v jq || echo "WARNING: jq binary not found in PATH"
-                jq --version 2>/dev/null || echo "WARNING: jq --version failed (not installed or not in PATH)"
+                SUMMARY="results/multiapp/summary.txt"
+
+                {
+                echo "=========================================="
+                echo "      MULTI-APP SCAN SUMMARY"
+                echo "  Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                echo "=========================================="
                 echo ""
-                echo "=== FILES PRESENT ==="
-                ls -lah results/multiapp/ || true
-                find results/multiapp -name "*.json" 2>/dev/null || true
-                echo "========================"
-                echo ""
+                } > "$SUMMARY"
 
-                # ── Detect jq (absolute path to avoid PATH issues) ───────
-                JQ=$(command -v jq 2>/dev/null || true)
-                if [ -z "$JQ" ]; then
-                    echo "WARNING: jq not installed. Counts will default to 0."
-                    JQ_AVAILABLE=0
-                else
-                    echo "jq found at: $JQ"
-                    JQ_AVAILABLE=1
-                fi
+                for APP in vulnapp dvwa juiceshop; do
+                    TRIVY_JSON="results/multiapp/$APP/trivy-report.json"
+                    OPA_JSON="results/multiapp/$APP/opa-config.json"
+                    ZAP_JSON="results/multiapp/$APP/zap-report.json"
 
-                # ── Helper: safely parse a jq expression ─────────────────
-                # Usage: safe_jq <file> <expression>
-                # Returns the numeric result, or 0 on any failure.
-                safe_jq() {
-                    _FILE="$1"
-                    _EXPR="$2"
-                    _RESULT=0
-                    if [ "$JQ_AVAILABLE" = "1" ] && [ -f "$_FILE" ] && [ -s "$_FILE" ]; then
-                        _OUT=$("$JQ" "$_EXPR" "$_FILE" 2>/dev/null)
-                        if [ $? -eq 0 ] && [ -n "$_OUT" ]; then
-                            _RESULT="$_OUT"
-                        fi
-                    fi
-                    echo "$_RESULT"
-                }
+                    # Display name
+                    case "$APP" in
+                        vulnapp)   LABEL="VULNAPP (Spring Boot)" ;;
+                        dvwa)      LABEL="DVWA (PHP)" ;;
+                        juiceshop) LABEL="JUICE SHOP (Node.js)" ;;
+                    esac
 
-                # ── Aggregate ─────────────────────────────────────────────
-                echo "=== MULTI-APP SCAN SUMMARY ===" > results/multiapp/summary.txt
-                echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> results/multiapp/summary.txt
-                echo "" >> results/multiapp/summary.txt
+                    {
+                    echo "------------------------------------------"
+                    echo "  $LABEL"
+                    echo "------------------------------------------"
+                    } >> "$SUMMARY"
 
-                for app in vulnapp dvwa juiceshop; do
-                    echo "--- $app ---" >> results/multiapp/summary.txt
-
-                    TRIVY_FILE="results/multiapp/$app/trivy-report.json"
-                    OPA_FILE="results/multiapp/$app/opa-config.json"
-
-                    if [ -f "$TRIVY_FILE" ]; then
-                        CRIT=$(safe_jq "$TRIVY_FILE" \
-                            '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length')
-                        HIGH=$(safe_jq "$TRIVY_FILE" \
-                            '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length')
-                        MED=$(safe_jq  "$TRIVY_FILE" \
-                            '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length')
-                        echo "  Trivy CRITICAL=$CRIT HIGH=$HIGH MEDIUM=$MED" >> results/multiapp/summary.txt
+                    # ── Trivy CVE counts (real jq queries) ──────────
+                    if [ -f "$TRIVY_JSON" ] && [ -s "$TRIVY_JSON" ]; then
+                        CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' "$TRIVY_JSON")
+                        HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")]    | length' "$TRIVY_JSON")
+                        MED=$( jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")]  | length' "$TRIVY_JSON")
+                        LOW=$( jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")]     | length' "$TRIVY_JSON")
+                        UNK=$( jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="UNKNOWN")] | length' "$TRIVY_JSON")
+                        TOTAL=$((CRIT + HIGH + MED + LOW + UNK))
+                        {
+                        echo "  Trivy CVEs:"
+                        echo "    Critical : $CRIT"
+                        echo "    High     : $HIGH"
+                        echo "    Medium   : $MED"
+                        echo "    Low      : $LOW"
+                        echo "    Unknown  : $UNK"
+                        echo "    Total    : $TOTAL"
+                        } >> "$SUMMARY"
                     else
-                        echo "  Trivy report not found: $TRIVY_FILE" >> results/multiapp/summary.txt
+                        echo "  Trivy: report missing ($TRIVY_JSON)" >> "$SUMMARY"
                     fi
 
-                    if [ -f "$OPA_FILE" ]; then
-                        VIOL=$(safe_jq "$OPA_FILE" 'length // 0')
-                        echo "  OPA Config Violations=$VIOL" >> results/multiapp/summary.txt
+                    # ── OPA Config violations ────────────────────────
+                    if [ -f "$OPA_JSON" ] && [ -s "$OPA_JSON" ]; then
+                        VIOL=$(jq 'if type=="array" then length else 0 end' "$OPA_JSON")
+                        echo "  OPA Config Violations : $VIOL" >> "$SUMMARY"
                     else
-                        echo "  OPA report not found: $OPA_FILE" >> results/multiapp/summary.txt
+                        echo "  OPA Config: report missing ($OPA_JSON)" >> "$SUMMARY"
                     fi
 
-                    echo "" >> results/multiapp/summary.txt
+                    # ── ZAP alert counts ─────────────────────────────
+                    if [ -f "$ZAP_JSON" ] && [ -s "$ZAP_JSON" ]; then
+                        ZAP_HIGH=$(  jq '[.site[]?.alerts[]? | select(.riskcode=="3")] | length' "$ZAP_JSON" 2>/dev/null || echo 0)
+                        ZAP_MED=$(   jq '[.site[]?.alerts[]? | select(.riskcode=="2")] | length' "$ZAP_JSON" 2>/dev/null || echo 0)
+                        ZAP_LOW=$(   jq '[.site[]?.alerts[]? | select(.riskcode=="1")] | length' "$ZAP_JSON" 2>/dev/null || echo 0)
+                        ZAP_INFO=$(  jq '[.site[]?.alerts[]? | select(.riskcode=="0")] | length' "$ZAP_JSON" 2>/dev/null || echo 0)
+                        {
+                        echo "  ZAP DAST:"
+                        echo "    High   : $ZAP_HIGH"
+                        echo "    Medium : $ZAP_MED"
+                        echo "    Low    : $ZAP_LOW"
+                        echo "    Info   : $ZAP_INFO"
+                        } >> "$SUMMARY"
+                    else
+                        echo "  ZAP: report missing or not run ($ZAP_JSON)" >> "$SUMMARY"
+                    fi
+
+                    echo "" >> "$SUMMARY"
                 done
 
-                cat results/multiapp/summary.txt
+                {
+                echo "=========================================="
+                echo "  Timing (seconds per stage):"
+                cat results/multiapp/timings.txt 2>/dev/null || echo "  (no timings recorded)"
+                echo "=========================================="
+                } >> "$SUMMARY"
+
+                # Print to console
+                cat "$SUMMARY"
                 '''
             }
         }
+
     }
 
+    // ── Post: Archive all artifacts ───────────────────────────────────
     post {
         always {
-            archiveArtifacts artifacts: 'results/multiapp/**', fingerprint: true
+            archiveArtifacts artifacts: [
+                'results/multiapp/**/trivy-report.json',
+                'results/multiapp/**/trivy-report.txt',
+                'results/multiapp/**/opa-config.json',
+                'results/multiapp/**/opa-severity.json',
+                'results/multiapp/**/image.json',
+                'results/multiapp/**/zap-report.html',
+                'results/multiapp/**/zap-report.json',
+                'results/multiapp/**/zap-report.xml',
+                'results/multiapp/summary.txt',
+                'results/multiapp/timings.txt'
+            ].join(','),
+            fingerprint: true,
+            allowEmptyArchive: true
+        }
+        success {
+            echo "Pipeline completed successfully. summary.txt archived."
+        }
+        failure {
+            echo "Pipeline FAILED. Check stage logs above."
         }
     }
 }
