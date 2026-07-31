@@ -188,77 +188,171 @@ pipeline {
         }
 
         // ── Stage 2: ZAP DAST (sequential — port isolation) ──────────
+        stage('ZAP DAST: vulnapp') {
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    sh '''
+                    START=$(date +%s)
+                    chmod -R 777 results/multiapp
+
+                    # Start vulnapp
+                    $DOCKER rm -f vulnapp-scan-target || true
+                    $DOCKER run -d \
+                      --name vulnapp-scan-target \
+                      -p 8081:8080 \
+                      vulnapp || true
+                    sleep 15
+
+                    # Run ZAP (no bind mount to avoid Docker-in-Docker path mismatch)
+                    $DOCKER rm -f vulnapp-zap-scan || true
+                    $DOCKER run --name vulnapp-zap-scan \
+                      --user root \
+                      --network host \
+                      ${ZAP_IMAGE} \
+                      zap-baseline.py \
+                        -t http://localhost:8081 \
+                        -r zap-report.html \
+                        -J zap-report.json \
+                        -x zap-report.xml \
+                        -l WARN \
+                        -d || true
+
+                    # Copy reports out of container
+                    $DOCKER cp vulnapp-zap-scan:/zap/wrk/zap-report.html results/multiapp/vulnapp/ || true
+                    $DOCKER cp vulnapp-zap-scan:/zap/wrk/zap-report.json results/multiapp/vulnapp/ || true
+                    $DOCKER cp vulnapp-zap-scan:/zap/wrk/zap-report.xml results/multiapp/vulnapp/ || true
+
+                    $DOCKER rm -f vulnapp-zap-scan || true
+                    $DOCKER rm -f vulnapp-scan-target || true
+
+                    echo "--- ZAP Verification ---"
+                    pwd
+                    ls -lah
+                    ls -lah results/multiapp/vulnapp/ || true
+                    find . -name "*zap*"
+
+                    if [ ! -f "results/multiapp/vulnapp/zap-report.json" ]; then
+                        echo "ERROR: ZAP report missing"
+                        exit 1
+                    fi
+
+                    END=$(date +%s)
+                    echo "vulnapp_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
+                    echo "ZAP vulnapp done in $((END-START))s"
+                    '''
+                }
+            }
+        }
+
         stage('ZAP DAST: DVWA') {
             steps {
-                sh '''
-                START=$(date +%s)
-                chmod -R 777 results/multiapp
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    sh '''
+                    START=$(date +%s)
+                    chmod -R 777 results/multiapp
 
-                # Start DVWA
-                $DOCKER rm -f dvwa-scan-target || true
-                $DOCKER run -d \
-                  --name dvwa-scan-target \
-                  -p 8082:80 \
-                  vulnerables/web-dvwa:latest || true
-                sleep 15
+                    # Start DVWA
+                    $DOCKER rm -f dvwa-scan-target || true
+                    $DOCKER run -d \
+                      --name dvwa-scan-target \
+                      -p 8082:80 \
+                      vulnerables/web-dvwa:latest || true
+                    sleep 15
 
-                # ZAP scan — --user root avoids Permission denied on /zap/wrk/
-                $DOCKER run --rm \
-                  --user root \
-                  --network host \
-                  -v ${WORKSPACE}/results/multiapp/dvwa:/zap/wrk:rw \
-                  ${ZAP_IMAGE} \
-                  zap-baseline.py \
-                    -t http://localhost:8082 \
-                    -r zap-report.html \
-                    -J zap-report.json \
-                    -x zap-report.xml \
-                    -l WARN \
-                    -d || true
+                    # Run ZAP (no bind mount to avoid Docker-in-Docker path mismatch)
+                    $DOCKER rm -f dvwa-zap-scan || true
+                    $DOCKER run --name dvwa-zap-scan \
+                      --user root \
+                      --network host \
+                      ${ZAP_IMAGE} \
+                      zap-baseline.py \
+                        -t http://localhost:8082 \
+                        -r zap-report.html \
+                        -J zap-report.json \
+                        -x zap-report.xml \
+                        -l WARN \
+                        -d || true
 
-                $DOCKER rm -f dvwa-scan-target || true
+                    # Copy reports out of container
+                    $DOCKER cp dvwa-zap-scan:/zap/wrk/zap-report.html results/multiapp/dvwa/ || true
+                    $DOCKER cp dvwa-zap-scan:/zap/wrk/zap-report.json results/multiapp/dvwa/ || true
+                    $DOCKER cp dvwa-zap-scan:/zap/wrk/zap-report.xml results/multiapp/dvwa/ || true
 
-                END=$(date +%s)
-                echo "dvwa_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
-                echo "ZAP DVWA done in $((END-START))s"
-                '''
+                    $DOCKER rm -f dvwa-zap-scan || true
+                    $DOCKER rm -f dvwa-scan-target || true
+
+                    echo "--- ZAP Verification ---"
+                    pwd
+                    ls -lah
+                    ls -lah results/multiapp/dvwa/ || true
+                    find . -name "*zap*"
+
+                    if [ ! -f "results/multiapp/dvwa/zap-report.json" ]; then
+                        echo "ERROR: ZAP report missing"
+                        exit 1
+                    fi
+
+                    END=$(date +%s)
+                    echo "dvwa_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
+                    echo "ZAP DVWA done in $((END-START))s"
+                    '''
+                }
             }
         }
 
         stage('ZAP DAST: Juice Shop') {
             steps {
-                sh '''
-                START=$(date +%s)
-                chmod -R 777 results/multiapp
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    sh '''
+                    START=$(date +%s)
+                    chmod -R 777 results/multiapp
 
-                # Start Juice Shop
-                $DOCKER rm -f juiceshop-scan-target || true
-                $DOCKER run -d \
-                  --name juiceshop-scan-target \
-                  -p 8083:3000 \
-                  bkimminich/juice-shop:latest || true
-                sleep 25
+                    # Start Juice Shop
+                    $DOCKER rm -f juiceshop-scan-target || true
+                    $DOCKER run -d \
+                      --name juiceshop-scan-target \
+                      -p 8083:3000 \
+                      bkimminich/juice-shop:latest || true
+                    sleep 25
 
-                # ZAP scan — --user root avoids Permission denied on /zap/wrk/
-                $DOCKER run --rm \
-                  --user root \
-                  --network host \
-                  -v ${WORKSPACE}/results/multiapp/juiceshop:/zap/wrk:rw \
-                  ${ZAP_IMAGE} \
-                  zap-baseline.py \
-                    -t http://localhost:8083 \
-                    -r zap-report.html \
-                    -J zap-report.json \
-                    -x zap-report.xml \
-                    -l WARN \
-                    -d || true
+                    # Run ZAP (no bind mount to avoid Docker-in-Docker path mismatch)
+                    $DOCKER rm -f juiceshop-zap-scan || true
+                    $DOCKER run --name juiceshop-zap-scan \
+                      --user root \
+                      --network host \
+                      ${ZAP_IMAGE} \
+                      zap-baseline.py \
+                        -t http://localhost:8083 \
+                        -r zap-report.html \
+                        -J zap-report.json \
+                        -x zap-report.xml \
+                        -l WARN \
+                        -d || true
 
-                $DOCKER rm -f juiceshop-scan-target || true
+                    # Copy reports out of container
+                    $DOCKER cp juiceshop-zap-scan:/zap/wrk/zap-report.html results/multiapp/juiceshop/ || true
+                    $DOCKER cp juiceshop-zap-scan:/zap/wrk/zap-report.json results/multiapp/juiceshop/ || true
+                    $DOCKER cp juiceshop-zap-scan:/zap/wrk/zap-report.xml results/multiapp/juiceshop/ || true
 
-                END=$(date +%s)
-                echo "juiceshop_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
-                echo "ZAP Juice Shop done in $((END-START))s"
-                '''
+                    $DOCKER rm -f juiceshop-zap-scan || true
+                    $DOCKER rm -f juiceshop-scan-target || true
+
+                    echo "--- ZAP Verification ---"
+                    pwd
+                    ls -lah
+                    ls -lah results/multiapp/juiceshop/ || true
+                    find . -name "*zap*"
+
+                    if [ ! -f "results/multiapp/juiceshop/zap-report.json" ]; then
+                        echo "ERROR: ZAP report missing"
+                        exit 1
+                    fi
+
+                    END=$(date +%s)
+                    echo "juiceshop_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
+                    echo "ZAP Juice Shop done in $((END-START))s"
+                    '''
+                }
             }
         }
 
@@ -271,10 +365,9 @@ pipeline {
                 SUMMARY="results/multiapp/summary.txt"
 
                 {
-                echo "=========================================="
-                echo "      MULTI-APP SCAN SUMMARY"
-                echo "  Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                echo "=========================================="
+                echo "========== MULTI APP SUMMARY ========="
+                echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                echo "======================================"
                 echo ""
                 } > "$SUMMARY"
 
@@ -285,15 +378,14 @@ pipeline {
 
                     # Display name
                     case "$APP" in
-                        vulnapp)   LABEL="VULNAPP (Spring Boot)" ;;
-                        dvwa)      LABEL="DVWA (PHP)" ;;
-                        juiceshop) LABEL="JUICE SHOP (Node.js)" ;;
+                        vulnapp)   LABEL="VULNAPP" ;;
+                        dvwa)      LABEL="DVWA" ;;
+                        juiceshop) LABEL="JUICE SHOP" ;;
                     esac
 
                     {
-                    echo "------------------------------------------"
-                    echo "  $LABEL"
-                    echo "------------------------------------------"
+                    echo "$LABEL"
+                    echo ""
                     } >> "$SUMMARY"
 
                     # ── Trivy CVE counts (real jq queries) ──────────
@@ -301,28 +393,25 @@ pipeline {
                         CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' "$TRIVY_JSON")
                         HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")]    | length' "$TRIVY_JSON")
                         MED=$( jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")]  | length' "$TRIVY_JSON")
-                        LOW=$( jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")]     | length' "$TRIVY_JSON")
-                        UNK=$( jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="UNKNOWN")] | length' "$TRIVY_JSON")
-                        TOTAL=$((CRIT + HIGH + MED + LOW + UNK))
                         {
-                        echo "  Trivy CVEs:"
-                        echo "    Critical : $CRIT"
-                        echo "    High     : $HIGH"
-                        echo "    Medium   : $MED"
-                        echo "    Low      : $LOW"
-                        echo "    Unknown  : $UNK"
-                        echo "    Total    : $TOTAL"
+                        echo "Critical : $CRIT"
+                        echo "High : $HIGH"
+                        echo "Medium : $MED"
+                        echo ""
                         } >> "$SUMMARY"
                     else
-                        echo "  Trivy: report missing ($TRIVY_JSON)" >> "$SUMMARY"
+                        echo "Trivy: report missing ($TRIVY_JSON)" >> "$SUMMARY"
+                        echo "" >> "$SUMMARY"
                     fi
 
                     # ── OPA Config violations ────────────────────────
                     if [ -f "$OPA_JSON" ] && [ -s "$OPA_JSON" ]; then
                         VIOL=$(jq 'if type=="array" then length else 0 end' "$OPA_JSON")
-                        echo "  OPA Config Violations : $VIOL" >> "$SUMMARY"
+                        echo "OPA Violations : $VIOL" >> "$SUMMARY"
+                        echo "" >> "$SUMMARY"
                     else
-                        echo "  OPA Config: report missing ($OPA_JSON)" >> "$SUMMARY"
+                        echo "OPA Config: report missing ($OPA_JSON)" >> "$SUMMARY"
+                        echo "" >> "$SUMMARY"
                     fi
 
                     # ── ZAP alert counts ─────────────────────────────
@@ -332,16 +421,18 @@ pipeline {
                         ZAP_LOW=$(   jq '[.site[]?.alerts[]? | select(.riskcode=="1")] | length' "$ZAP_JSON" 2>/dev/null || echo 0)
                         ZAP_INFO=$(  jq '[.site[]?.alerts[]? | select(.riskcode=="0")] | length' "$ZAP_JSON" 2>/dev/null || echo 0)
                         {
-                        echo "  ZAP DAST:"
-                        echo "    High   : $ZAP_HIGH"
-                        echo "    Medium : $ZAP_MED"
-                        echo "    Low    : $ZAP_LOW"
-                        echo "    Info   : $ZAP_INFO"
+                        echo "ZAP"
+                        echo "High Alerts $ZAP_HIGH"
+                        echo "Medium Alerts $ZAP_MED"
+                        echo "Low Alerts $ZAP_LOW"
+                        echo "Info Alerts $ZAP_INFO"
                         } >> "$SUMMARY"
                     else
-                        echo "  ZAP: report missing or not run ($ZAP_JSON)" >> "$SUMMARY"
+                        echo "ZAP: report missing or not run ($ZAP_JSON)" >> "$SUMMARY"
                     fi
 
+                    echo "" >> "$SUMMARY"
+                    echo "-------------------------------------" >> "$SUMMARY"
                     echo "" >> "$SUMMARY"
                 done
 
