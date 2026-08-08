@@ -14,7 +14,7 @@
 \title{Automated Multi-Stage DevSecOps Pipeline with Policy-as-Code Enforcement: A Systems Experience Report on Tool Complementarity, Gate Efficacy, and Security-vs-Velocity Trade-offs}
 
 \author{
-\IEEEauthorblockN{Saurabh Pandey, Aniket Kumar}
+\IEEEauthorblockN{Saurabh Pandey, Aniket Kumar, B. Thangaraju}
 \IEEEauthorblockA{
 Department of Computer Science and Engineering\\
 IIIT Bangalore, Bangalore -- 560100, India\\
@@ -25,7 +25,7 @@ GitHub: \url{https://github.com/Saurab2h/ieee-devsecops-project}
 \maketitle
 
 \begin{abstract}
-Security validation in continuous integration and continuous delivery (CI/CD) pipelines is, in most industrial practice, applied post-hoc, leaving vulnerabilities to be discovered by penetration testers or attackers rather than by the pipeline itself. This paper presents a systems experience report and case study of a five-layer DevSecOps pipeline, built as an M.Tech academic project (P07) at IIIT Bangalore, that embeds static application security testing (SAST) with Semgrep, software composition analysis (SCA) with OWASP Dependency-Check, container vulnerability scanning with Trivy, dual Policy-as-Code gates implemented in Open Policy Agent (OPA) and Rego, and dynamic application security testing (DAST) with OWASP ZAP directly into a Jenkins declarative pipeline. The pipeline was evaluated against three deliberately vulnerable target applications -- vulnapp, DVWA, and OWASP Juice Shop -- spanning a range of base-image staleness and vulnerability density. Three research questions guide the case study: the velocity cost of embedding security tooling, the dynamics of container vulnerability exposure across application types, and the relative efficacy of Policy-as-Code versus imperative Bash scripting. On our single-host Jenkins environment, the synchronous pipeline adds approximately 23 seconds over a 206-second unsecured baseline (Table~\ref{tab:timings}); decoupling ZAP to an asynchronous job reduces developer-blocking overhead to a 1.03$\times$ multiplier. Across all three applications, both OPA gates blocked 100\% of non-compliant deployment attempts (Table~\ref{tab:opa_gates}). In a controlled $N=30$ benchmark on our local host, OPA policy evaluation was 42.8\% faster than an equivalent Bash-and-jq implementation while producing structured JSON output; LOC growth per additional rule was linear versus 2.2$\times$ for Bash (Table~\ref{tab:gate_benchmark}). An inner-team annotation exercise by both developers on 50 randomly sampled Trivy findings yielded Cohen's Kappa $\kappa = 0.660$ (Substantial Agreement), serving as a reliability check on the manual verification of automated severity classifications in our sample. These findings are mapped onto the three research questions in Sections~\ref{sec:results} and~\ref{sec:conclusion}.
+Security validation in continuous integration and continuous delivery (CI/CD) pipelines is, in most industrial practice, applied post-hoc, leaving vulnerabilities to be discovered by penetration testers or attackers rather than by the pipeline itself. This paper presents a systems experience report and case study of a five-layer DevSecOps pipeline, built as an M.Tech academic project (P07) at IIIT Bangalore, that embeds static application security testing (SAST) with Semgrep, software composition analysis (SCA) with OWASP Dependency-Check, container vulnerability scanning with Trivy, Policy-as-Code gates implemented in Open Policy Agent (OPA) and Rego, and dynamic application security testing (DAST) with OWASP ZAP directly into a Jenkins declarative pipeline. The pipeline was evaluated against three deliberately vulnerable target applications -- vulnapp, DVWA, and OWASP Juice Shop -- spanning a range of base-image staleness and vulnerability density. Three research questions guide the case study: the velocity cost of embedding security tooling, the dynamics of container vulnerability exposure across application types, and the relative efficacy of Policy-as-Code versus imperative Bash scripting. On our single-host Jenkins environment, the synchronous pipeline adds approximately 23 seconds over a 206-second unsecured baseline (Table~\ref{tab:timings})---a whole-pipeline delta that sits within the baseline's measurement variance and therefore should not be presented as a statistically clean estimate of security-induced overhead. Relying instead on the per-stage decomposition, ZAP is identified as the dominant latency contributor; decoupling it to an asynchronous job reduces developer-blocking overhead to a 1.03$\times$ multiplier. Across the three applications, the Configuration and Severity gates blocked all observed non-compliant deployment attempts, while the Provenance Gate blocked vulnapp based on 27 dual-scope CVEs and passed the other two applications (Table~\ref{tab:opa_gates}). In a controlled $N=30$ benchmark on our local host, OPA policy evaluation was 42.8\% faster than an equivalent Bash-and-jq implementation while producing structured JSON output; in the two-rule comparison, the Bash implementation increased from 11 to 24 LOC, whereas the Rego implementation increased from 40 to 43 LOC, suggesting more favorable scaling (Table~\ref{tab:gate_benchmark}). An inner-team annotation exercise by both developers on 50 randomly sampled Trivy findings yielded Cohen's Kappa $\kappa = 0.660$ (Substantial Agreement), serving as a reliability check on the manual verification of automated severity classifications in our sample. These findings are mapped onto the three research questions in Sections~\ref{sec:results} and~\ref{sec:conclusion}.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -142,11 +142,11 @@ The stages visible in Fig.~\ref{fig:jenkins_stage} correspond directly to the fi
 \label{sec:results}
 
 \subsection{RQ1: Security versus Velocity}
-Table~\ref{tab:timings} reports pipeline stage timings across repeated runs. The unsecured baseline pipeline, with all security stages removed, completes in a mean of 206.0 seconds ($N=5$, SD 53.1s, 95\% CI $[140.1, 271.9]$). Adding the full security stack -- Trivy, the OPA gates, and synchronous ZAP -- brings the observed full pipeline to an average of 229.0 seconds, an addition of approximately 23 seconds over baseline on a warm cache.
+Table~\ref{tab:timings} reports pipeline stage timings across repeated runs. The unsecured baseline pipeline, with all security stages removed, completes in a mean of 206.0 seconds ($N=5$, SD 53.1s, 95\% CI $[140.1, 271.9]$). Adding the full security stack -- Trivy, the OPA gates, and synchronous ZAP -- brings the observed full pipeline to an average of 229.0 seconds, an addition of approximately 23 seconds over baseline on a warm cache. Crucially, this whole-pipeline delta sits within the baseline's observed measurement variance (baseline SD is 53.1s) and therefore should not be presented as a statistically clean estimate of security-induced overhead. Instead, the RQ1 argument relies primarily on the per-stage decomposition in Table~\ref{tab:timings} and Fig.~\ref{fig:pipeline_timing}, identifying ZAP as the dominant latency contributor. This decomposition isolates the single-digit-second Trivy stage times and the minimal OPA latency from the 49--72-second cost of ZAP.
 
 \begin{table*}[t]
 \centering
-\caption{Pipeline Stage Execution Times (Warm Cache, N=8 for Trivy, N=6 for ZAP)}
+\caption{Pipeline Stage Execution Times (Warm Cache; N=8 for Trivy; N=1--6 for ZAP)}
 \label{tab:timings}
 \footnotesize
 \begin{tabular}{|l|r|r|r|r|r|}
@@ -168,7 +168,7 @@ Full pipeline observed avg    & -- & 229.0 & --  & --             & -- \\
 \begin{figure}[ht]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig3_pipeline_timing.png}
-\caption{Mean pipeline stage execution times (seconds) across N=30 runs, indicating DAST (ZAP) is the primary latency contributor.}
+\caption{Mean pipeline stage execution times (seconds) based on the repeated measurements reported in Table~\ref{tab:timings} ($N = 8$ for Trivy; $N = 6$ for DVWA and Juice Shop ZAP; $N = 1$ for vulnapp ZAP), indicating DAST (ZAP) is the primary latency contributor.}
 \label{fig:pipeline_timing}
 \end{figure}
 
@@ -182,15 +182,15 @@ Table~\ref{tab:cve_breakdown} reports the Trivy CVE severity breakdown for each 
 \caption{Trivy Container Scan CVE Severity Breakdown}
 \label{tab:cve_breakdown}
 \footnotesize
-\begin{tabular}{|l|r|r|r|r|r|}
+\begin{tabular}{|l|r|r|r|r|r|r|}
 \hline
-\textbf{Application} & \textbf{Critical} & \textbf{High} & \textbf{Medium} & \textbf{Low} & \textbf{Total} \\
+\textbf{Application} & \textbf{Critical} & \textbf{High} & \textbf{Medium} & \textbf{Low} & \textbf{Unknown} & \textbf{Total} \\
 \hline
-vulnapp    & 3   & 34  & 164 & 70  & 273 \\
-DVWA       & 254 & 551 & 642 & 116 & 1,575 \\
-Juice Shop & 7   & 42  & 32  & 12  & 93 \\
+vulnapp    & 3   & 34  & 164 & 70  & 2  & 273 \\
+DVWA       & 254 & 551 & 642 & 116 & 12 & 1,575 \\
+Juice Shop & 7   & 42  & 32  & 12  & 0  & 93 \\
 \hline
-\textbf{Total} & \textbf{264} & \textbf{627} & \textbf{838} & \textbf{198} & \textbf{1,941} \\
+\textbf{Total} & \textbf{264} & \textbf{627} & \textbf{838} & \textbf{198} & \textbf{14} & \textbf{1,941} \\
 \hline
 \end{tabular}
 \end{table*}
@@ -198,7 +198,7 @@ Juice Shop & 7   & 42  & 32  & 12  & 93 \\
 \begin{figure}[ht]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig1_trivy_cve_distribution.png}
-\caption{Container vulnerability severity distribution across three target applications, showing the extreme CVE exposure of DVWA due to its EOL base image.}
+\caption{Container vulnerability severity distribution across three target applications, showing the extreme CVE exposure of DVWA due to its EOL base image. Unknown-severity findings are included in Table~\ref{tab:cve_breakdown} totals but omitted from this stacked visualization.}
 \label{fig:cve_dist}
 \end{figure}
 
@@ -227,11 +227,11 @@ Table~\ref{tab:layer_attribution}'s finding that 100.0\% of DVWA's 1,575 CVEs or
 \begin{figure}[ht]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig6_base_image_freshness.png}
-\caption{CVE counts plotted against days past base-image EOL for the three study applications, illustrating that the oldest base image (DVWA) concentrates the most OS-layer CVEs. This is an illustrative comparison across three data points, not a fitted statistical model.}
+\caption{CVE counts plotted against months of base-image age or maintenance gap for the three study applications, illustrating that the oldest base image (DVWA) concentrates the most OS-layer CVEs. This is an illustrative comparison across three data points, not a fitted statistical model.}
 \label{fig:base_freshness}
 \end{figure}
 
-Fig.~\ref{fig:base_freshness} plots each application's total CVE count against the number of days elapsed since its base image's end-of-life date. The three data points illustrate a clear directional pattern within this case study: DVWA, with the oldest end-of-life base image, carries the largest CVE count (1,575), almost entirely attributable to OS-layer packages; vulnapp, moderately past its end-of-life date, sits in the middle; and Juice Shop, on an actively maintained image, has the lowest total (93 CVEs) and an application-layer-dominated profile. This directional relationship is consistent with the layer-attribution data in Table~\ref{tab:layer_attribution} and motivates treating base-image freshness as a continuously monitored hard constraint. Note that with only three observations across three deliberately different applications, this chart is intended as an illustrative comparison within our case study, not as a fitted statistical model or a basis for extrapolation to other systems. Taken together, these results answer RQ2 within our case-study scope: vulnerability profiles differ substantially across the evaluated application types, and base-image staleness dominates OS-layer CVE exposure, but this pattern is conditional on base-image age and technology stack rather than a universal property of container scanning.
+Fig.~\ref{fig:base_freshness} plots each application's total CVE count against the number of months of base-image age or maintenance gap. The three data points illustrate a clear directional pattern within this case study: DVWA, with the oldest end-of-life base image, carries the largest CVE count (1,575), almost entirely attributable to OS-layer packages; vulnapp, moderately past its end-of-life date, sits in the middle; and Juice Shop, on an actively maintained image, has the lowest total (93 CVEs) and an application-layer-dominated profile. This directional relationship is consistent with the layer-attribution data in Table~\ref{tab:layer_attribution} and motivates treating base-image freshness as a continuously monitored hard constraint. Note that with only three observations across three deliberately different applications, this chart is intended as an illustrative comparison within our case study, not as a fitted statistical model or a basis for extrapolation to other systems. Taken together, these results answer RQ2 within our case-study scope: vulnerability profiles differ substantially across the evaluated application types, and base-image staleness dominates OS-layer CVE exposure, but this pattern is conditional on base-image age and technology stack rather than a universal property of container scanning.
 
 \subsection{RQ3: Policy-as-Code Efficacy}
 Table~\ref{tab:opa_gates} reports the OPA gate decisions recorded across all pipeline runs for each application.
@@ -241,18 +241,18 @@ Table~\ref{tab:opa_gates} reports the OPA gate decisions recorded across all pip
 \caption{OPA Policy Gate Decisions Across Applications}
 \label{tab:opa_gates}
 \footnotesize
-\begin{tabular}{|l|l|l|}
+\begin{tabular}{|l|l|l|l|}
 \hline
-\textbf{Application} & \textbf{Config Gate Result} & \textbf{Severity Gate Result} \\
+\textbf{Application} & \textbf{Config Gate Result} & \textbf{Severity Gate Result} & \textbf{Provenance Gate Result} \\
 \hline
-vulnapp    & BLOCK (1 violation) & BLOCK (3 Critical CVEs) \\
-DVWA       & BLOCK (2 violations) & BLOCK (254 Critical CVEs) \\
-Juice Shop & BLOCK (1 violation) & BLOCK (7 Critical CVEs) \\
+vulnapp    & BLOCK (1 violation) & BLOCK (3 Critical CVEs) & BLOCK (27 dual-scope CVEs) \\
+DVWA       & BLOCK (2 violations) & BLOCK (254 Critical CVEs) & PASS (0 dual-scope CVEs) \\
+Juice Shop & BLOCK (1 violation) & BLOCK (7 Critical CVEs) & PASS (0 dual-scope CVEs) \\
 \hline
 \end{tabular}
 \end{table*}
 
-Every one of the three applications was blocked by both the Configuration Gate and the Severity Gate in every recorded run, a 100\% block rate against non-compliant images across the builds observed in this case study.
+Every one of the three applications was blocked by the Configuration Gate and the Severity Gate in every recorded run. The Provenance Gate blocked vulnapp based on 27 dual-scope CVEs and passed the other two applications, as summarized in Table~\ref{tab:opa_gates}.
 
 Fig.~\ref{fig:opa_terminal} shows the terminal output of the OPA Severity Gate evaluating Trivy's JSON report for vulnapp, identifying 3~Critical CVEs and emitting a \texttt{SECURITY GATE BLOCKED} decision before the pipeline can reach the DAST stage.
 
@@ -287,7 +287,7 @@ OPA Rego   & 42.5 & 15.6 & 40 & 43 (+3 lines)    & Structured JSON & Yes \\
 \end{tabular}
 \end{table*}
 
-Table~\ref{tab:gate_benchmark}'s $N=30$ benchmark shows OPA evaluating in a mean of 42.5ms against Bash-and-\texttt{jq}'s 74.3ms, a 42.8\% reduction in mean latency, despite OPA's higher standard deviation (15.6ms versus 8.8ms) reflecting the cost of its more general policy-evaluation engine relative to a purpose-built shell pipeline. The lines-of-code comparison is, if anything, a larger practical advantage than the latency figure: moving from one policy rule to two grows the Bash implementation by 2.2$\times$, from 11 to 24 lines, because each additional rule typically requires its own conditional branch and its own \texttt{jq} extraction expression, whereas the equivalent Rego policy grows by only 3 lines, because Rego's rule-based evaluation model allows additional constraints to be appended without restructuring existing logic. Combined with OPA's structured JSON output, contrasted against Bash's bare exit code in the final column of Table~\ref{tab:gate_benchmark}, these results answer RQ3: Policy-as-Code does provide measurable advantages over equivalent Bash scripting, in latency, in lines-of-code scalability, and in auditability, though the latency advantage should be read as marginal in absolute terms, roughly 32 milliseconds, rather than transformative on its own.
+Table~\ref{tab:gate_benchmark}'s $N=30$ benchmark shows OPA evaluating in a mean of 42.5ms against Bash-and-\texttt{jq}'s 74.3ms, a 42.8\% reduction in mean latency, despite OPA's higher standard deviation (15.6ms versus 8.8ms) reflecting the cost of its more general policy-evaluation engine relative to a purpose-built shell pipeline. The lines-of-code comparison is, if anything, a larger practical advantage than the latency figure: in the two-rule comparison, the Bash implementation increased from 11 to 24 LOC (a 2.2$\times$ growth), because each additional rule typically requires its own conditional branch and its own \texttt{jq} extraction expression, whereas the equivalent Rego policy increased from 40 to 43 LOC (only 3 lines). This suggests more favorable scaling, as Rego's rule-based evaluation model allows additional constraints to be appended without restructuring existing logic. Combined with OPA's structured JSON output, contrasted against Bash's bare exit code in the final column of Table~\ref{tab:gate_benchmark}, these results answer RQ3: OPA provides measurable advantages in the benchmarked latency and implementation size, while its structured output provides practical auditability advantages, though the latency advantage should be read as marginal in absolute terms, roughly 32 milliseconds, rather than transformative on its own.
 
 \subsection{DAST Findings and Tool Complementarity}
 Table~\ref{tab:zap_findings} reports ZAP's passive baseline alerts for each application.
@@ -346,7 +346,7 @@ The observability layer shown in Fig.~\ref{fig:grafana_dashboard} is what a bare
 \label{fig:gate_matrix}
 \end{figure}
 
-Fig.~\ref{fig:gate_matrix} summarizes the gate decision matrix, showing how OPA detects and blocks distinct vulnerability classes. vulnapp passes the Configuration Gate because its metadata contains no hardening gaps (runs as non-root, exposes safe ports), but is blocked at the Severity Gate by its 3 Critical CVEs. DVWA and Juice Shop fail both gates independently, illustrating that OPA config checking and Trivy severity checking represent complementary enforcement points rather than redundant checks.
+Fig.~\ref{fig:gate_matrix} summarizes the gate decision matrix, showing how OPA detects and blocks distinct vulnerability classes. All three applications fail the Configuration Gate due to hardening gaps such as lacking a specified non-root user. Furthermore, they all fail the Severity Gate due to Critical CVEs. This illustrates that OPA config checking and Trivy severity checking represent complementary enforcement points, evaluating distinct application artifacts (runtime metadata versus package manifests) rather than redundant checks.
 
 \begin{figure}[ht]
 \centering
@@ -376,7 +376,7 @@ corresponding to Substantial Agreement on the Landis and Koch scale~\cite{ref12}
 
 This paper set out to design, implement, and empirically evaluate a five-layer DevSecOps pipeline that embeds SAST, SCA, container scanning, Policy-as-Code gating, and DAST into a single Jenkins pipeline, and to answer three research questions about the resulting system. All five stated project deliverables were achieved over the course of this work: a fully scripted Jenkinsfile enforcing security gates and configurable thresholds was implemented and evaluated across nineteen consecutive builds (Fig.~\ref{fig:jenkins_stage}); an OPA policy bundle covering configuration compliance, CVE severity thresholds, and cross-tool CVE provenance was written and unit-tested with \texttt{opa test}; the pipeline was evaluated end-to-end across three open-source target applications spanning a deliberate range of base-image freshness (Table~\ref{tab:targets}); a Prometheus- and Grafana-backed security metrics dashboard was deployed and populated with live pipeline data (Fig.~\ref{fig:grafana_dashboard}); and this paper itself constitutes the research write-up presenting the resulting trade-off model and configuration recommendations.
 
-RQ1, the security-versus-velocity cost of embedding security tooling into a CI/CD pipeline, is answered within our single-host case study by the Table~\ref{tab:timings} measurements and Fig.~\ref{fig:pipeline_timing}: the full synchronous pipeline adds approximately 23 seconds over a 206.0-second baseline to reach an observed average of 229.0 seconds, and decoupling the ZAP DAST stage to an asynchronous job reduces the developer-blocking cost to a 1.03$\times$ baseline multiplier, identifying DAST rather than container scanning or policy evaluation as the dominant latency contributor. RQ2, on how container vulnerability profiles differ across application types and whether base-image staleness dominates CVE exposure, is answered by the layer-attribution results in Table~\ref{tab:layer_attribution} and the illustrative comparison in Fig.~\ref{fig:base_freshness}: within our case study, base-image staleness dominates OS-layer CVE exposure conditionally -- DVWA's 100.0\% operating-system-layer attribution reflects its end-of-life base image, while Juice Shop's 87.1\% application-layer attribution shows that the same pattern does not hold for actively maintained images. RQ3, on whether Policy-as-Code provides measurable advantages over equivalent Bash scripting, is answered in our local environment by the OPA-versus-Bash benchmark in Table~\ref{tab:gate_benchmark} and the inner-team annotation reliability check in Section~\ref{sec:validity}: OPA evaluated 42.8\% faster than Bash in our $N=30$ benchmark, scales in lines of code far more gracefully as policy rules accumulate, produces structured and auditable output that a bare exit code cannot, and the $\kappa = 0.660$ result supports consistent interpretation of the severity classifications that feed its gates.
+RQ1, the security-versus-velocity cost of embedding security tooling into a CI/CD pipeline, is answered within our single-host case study by the Table~\ref{tab:timings} measurements and Fig.~\ref{fig:pipeline_timing}: the observed full synchronous pipeline average was 229.0 seconds versus a 206.0-second baseline; however, the 23-second whole-pipeline delta lies within the baseline's observed variance and should not be interpreted as a statistically clean overhead estimate, and decoupling the ZAP DAST stage to an asynchronous job reduces the developer-blocking cost to a 1.03$\times$ baseline multiplier, identifying DAST rather than container scanning or policy evaluation as the dominant latency contributor. RQ2, on how container vulnerability profiles differ across application types and whether base-image staleness dominates CVE exposure, is answered by the layer-attribution results in Table~\ref{tab:layer_attribution} and the illustrative comparison in Fig.~\ref{fig:base_freshness}: within our case study, base-image staleness dominates OS-layer CVE exposure conditionally -- DVWA's 100.0\% operating-system-layer attribution reflects its end-of-life base image, while Juice Shop's 87.1\% application-layer attribution shows that the same pattern does not hold for actively maintained images. RQ3, on whether Policy-as-Code provides measurable advantages over equivalent Bash scripting, is answered in our local environment by the OPA-versus-Bash benchmark in Table~\ref{tab:gate_benchmark} and the inner-team annotation reliability check in Section~\ref{sec:validity}: OPA evaluated 42.8\% faster than Bash in our $N=30$ benchmark, suggests more favorable scaling as rules accumulate, and produces structured output that provides practical auditability advantages that a bare exit code cannot, while the $\kappa = 0.660$ result supports consistent interpretation of the severity classifications that feed its gates.
 
 Future work includes extending policy enforcement into the Kubernetes admission-control layer using Kyverno, so that the same Policy-as-Code discipline applied at build time in this paper also governs runtime deployment decisions; generating Software Bill of Materials (SBOM) artifacts in CycloneDX format alongside each build to make the dependency graph underlying Tables~\ref{tab:cve_breakdown} and~\ref{tab:layer_attribution} independently auditable outside the pipeline itself; adding secret-scanning coverage via TruffleHog, a gap not addressed by any of the five layers evaluated in this study; running ZAP in active rather than passive-only mode to test whether the zero-High-alert result in Table~\ref{tab:zap_findings} holds under genuine attack payloads; and exploring tiered, per-team OPA severity thresholds rather than the single global threshold used throughout this study, to accommodate teams operating at different points on the latency-versus-auditability trade-off that motivates the Provenance Gate design described in Section~\ref{subsec:comparative}.
 
