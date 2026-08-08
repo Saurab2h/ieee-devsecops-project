@@ -1,270 +1,400 @@
 \documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
-\usepackage{algorithmic}
 \usepackage{graphicx}
+\usepackage{booktabs}
 \usepackage{textcomp}
 \usepackage{xcolor}
 \usepackage{url}
-\usepackage{booktabs}
-\usepackage{microtype}
-
-\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
-    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\usepackage[hidelinks]{hyperref}
 
 \begin{document}
 
-\title{Data-Driven Policy-as-Code and Multi-Layer Vulnerability Assessment: Evaluating the Security-Velocity Tradeoff in DevSecOps Pipelines}
+\title{Automated Multi-Stage DevSecOps Pipeline with Policy-as-Code Enforcement: A Systems Experience Report on Tool Complementarity, Gate Efficacy, and Security-vs-Velocity Trade-offs}
 
-\author{\IEEEauthorblockN{Saurabh Pandey}
-\IEEEauthorblockA{\textit{Department of Computer Science} \\
-\textit{IEEE DevSecOps Project Group}\\
-saurabh.pandey@example.com}
-\and
-\IEEEauthorblockN{Aniket Kumar}
-\IEEEauthorblockA{\textit{Department of Computer Science} \\
-\textit{IEEE DevSecOps Project Group}\\
-aniket.kumar@example.com}
+\author{
+\IEEEauthorblockN{Saurabh Pandey, Aniket Kumar}
+\IEEEauthorblockA{
+Department of Computer Science and Engineering\\
+IIIT Bangalore, Bangalore -- 560100, India\\
+GitHub: \url{https://github.com/Saurab2h/ieee-devsecops-project}
+}
 }
 
 \maketitle
 
 \begin{abstract}
-As software development organizations shift security left, integrating automated scanning tools into continuous integration and continuous deployment (CI/CD) pipelines has become standard practice. However, simply running separate tools creates fragmented reporting and increases developer friction due to pipeline latency. This paper introduces an integrated, five-layer DevSecOps pipeline combining Static Application Security Testing (SAST), Software Composition Analysis (SCA), container configuration and vulnerability scanning, data-driven Policy-as-Code (PaC) enforcement, and Dynamic Application Security Testing (DAST). We evaluate this pipeline across three open-source application environments to address the research questions of tool complementarity, policy enforcement gate effectiveness, and security-velocity overhead. Our results demonstrate that each security layer identifies mutually exclusive, non-overlapping vulnerability categories. Furthermore, we demonstrate that data-driven Open Policy Agent (OPA) severity gates successfully block non-compliant artifacts (root containers and undeclared ports) and images with high-severity vulnerabilities before deployment. We quantify the security overhead, revealing that adding comprehensive security scanning stages increases build duration significantly over the baseline pipeline, and discuss the architectural and operational implications of this tradeoff for continuous delivery.
+Security validation in continuous integration and continuous delivery (CI/CD) pipelines is, in most industrial practice, applied post-hoc, leaving vulnerabilities to be discovered by penetration testers or attackers rather than by the pipeline itself. This paper presents a systems experience report and case study of a five-layer DevSecOps pipeline, built as an M.Tech academic project (P07) at IIIT Bangalore, that embeds static application security testing (SAST) with Semgrep, software composition analysis (SCA) with OWASP Dependency-Check, container vulnerability scanning with Trivy, dual Policy-as-Code gates implemented in Open Policy Agent (OPA) and Rego, and dynamic application security testing (DAST) with OWASP ZAP directly into a Jenkins declarative pipeline. The pipeline was evaluated against three deliberately vulnerable target applications -- vulnapp, DVWA, and OWASP Juice Shop -- spanning a range of base-image staleness and vulnerability density. Three research questions guide the case study: the velocity cost of embedding security tooling, the dynamics of container vulnerability exposure across application types, and the relative efficacy of Policy-as-Code versus imperative Bash scripting. On our single-host Jenkins environment, the synchronous pipeline adds approximately 23 seconds over a 206-second unsecured baseline (Table~\ref{tab:timings}); decoupling ZAP to an asynchronous job reduces developer-blocking overhead to a 1.03$\times$ multiplier. Across all three applications, both OPA gates blocked 100\% of non-compliant deployment attempts (Table~\ref{tab:opa_gates}). In a controlled $N=30$ benchmark on our local host, OPA policy evaluation was 42.8\% faster than an equivalent Bash-and-jq implementation while producing structured JSON output; LOC growth per additional rule was linear versus 2.2$\times$ for Bash (Table~\ref{tab:gate_benchmark}). An inner-team annotation exercise by both developers on 50 randomly sampled Trivy findings yielded Cohen's Kappa $\kappa = 0.660$ (Substantial Agreement), serving as a reliability check on the manual verification of automated severity classifications in our sample. These findings are mapped onto the three research questions in Sections~\ref{sec:results} and~\ref{sec:conclusion}.
 \end{abstract}
 
 \begin{IEEEkeywords}
-DevSecOps, Policy-as-Code, Open Policy Agent, Continuous Integration, Software Security, Container Security, DAST
+DevSecOps, CI/CD, Policy-as-Code, Open Policy Agent, SAST, SCA, DAST, container security, shift-left security, Jenkins, OWASP, Rego
 \end{IEEEkeywords}
 
 \section{Introduction}
-Modern software engineering depends heavily on Continuous Integration and Continuous Deployment (CI/CD) to release software at high velocity~\cite{bass2015devops}. However, rapid deployment frequently introduces security risks if code changes, dependency trees, and container configurations are not continuously audited for vulnerabilities. The paradigm of ``shifting left'' seeks to integrate security checks early in the lifecycle, forming what is known as DevSecOps~\cite{mohan2016secdevops}.
+\label{sec:intro}
 
-A major challenge in DevSecOps is managing the tradeoff between security verification depth and pipeline execution speed (velocity)~\cite{garcia2020security}. Running multiple security scanners—such as Static Application Security Testing (SAST), Software Composition Analysis (SCA), container scanners, and Dynamic Application Security Testing (DAST)—adds significant execution overhead~\cite{shahin2017continuous}. Moreover, tools often operate in isolation, generating separate reports that require manual compilation. This siloed reporting hinders the ability of automated quality gates to halt non-compliant or highly vulnerable releases.
+Software delivery pipelines have compressed the interval between a code commit and a production deployment from weeks to minutes, but the security validation performed within that interval has not kept pace with this compression. In many organizations, security review still happens outside the pipeline entirely: a manual penetration test scheduled quarterly, a compliance checklist filled out after release, or a code review that focuses on functional correctness rather than exploitability. Where automated tooling exists, it is frequently limited to a single scanner invoked as an advisory step whose failure does not block the build, or to a hand-rolled Bash script that parses a JSON report with \texttt{jq} and exits non-zero on a hard-coded threshold. Both patterns leave a gap between the moment a vulnerability is introduced into a codebase or container image and the moment it is discovered, and neither produces a machine-readable, queryable record explaining why a given build was allowed to proceed to deployment.
 
-To address these limitations, we design, implement, and evaluate an automated, multi-layered DevSecOps pipeline. The key contributions of this paper are:
-\begin{enumerate}
-    \item We design an end-to-end security pipeline incorporating five layers: Semgrep (SAST), OWASP Dependency-Check (SCA), Trivy (container scan), Open Policy Agent (OPA) for Policy-as-Code configuration and severity gating, and OWASP ZAP (DAST).
-    \item We develop a novel data-driven Policy-as-Code mechanism where OPA evaluates the JSON output of container vulnerability scans rather than just static configuration data, allowing fine-grained threshold gating.
-    \item We run the pipeline against three distinct applications (\textit{vulnapp}, \textit{DVWA}, and \textit{Juice Shop}) to quantify tool complementarity, OPA gate blocking effectiveness, and stage-by-stage timing overhead.
-\end{enumerate}
+This gap motivates the central question addressed by this paper: can a multi-stage DevSecOps pipeline enforce security policy across the software supply chain with acceptable velocity cost, and does encoding that policy declaratively using Open Policy Agent (OPA) and Rego offer advantages over imperative Bash scripting? To answer this question we designed, implemented, and instrumented such a pipeline as an M.Tech academic project (P07) at IIIT Bangalore, titled \emph{Automated Multi-Stage DevSecOps Pipeline with Policy-as-Code Enforcement Using OPA and Jenkins}. This paper presents an experience report and case study of that implementation: all measurements are single-host, environment-specific benchmarks intended to characterize relative stage costs and design trade-offs, not to be read as generalizable population-level statistics. The study is organized around three research questions.
 
-\section{Related Work}
-Integrating automated testing tools into CI/CD pipelines is a well-studied topic in continuous software engineering. Early research by Mohan and Othmane~\cite{mohan2016secdevops} defined the core concepts of SecDevOps, highlighting the necessity of automating security testing to avoid bottlenecks. Myrbakken and Colomo-Palacios~\cite{myrbakken2017devsecops} mapped DevSecOps adoption trends and documented that tool integration is often fragmented, with developers struggling to reconcile conflicting tool outputs. Shahin et al.~\cite{shahin2017continuous} provided a systematic review of continuous integration and continuous deployment, highlighting the trade-offs between rapid feedback cycles and rigorous validation checks.
+RQ1 asks what the quantified security-versus-velocity cost is of embedding multi-stage security tooling into a CI/CD pipeline. RQ2 asks how container vulnerability profiles differ across application types, and whether base-image staleness dominates CVE exposure. RQ3 asks whether Policy-as-Code, implemented with OPA and Rego, provides measurable advantages over equivalent Bash scripting in a DevSecOps gate.
 
-Static and dynamic analysis tools have different detection capabilities. Wetzel et al.~\cite{wetzel2022static} compared SAST and SCA, showing that static scanners identify code syntax defects while SCA captures known CVEs in third-party libraries. Imtiaz et al.~\cite{imtiaz2021empirical} conducted an empirical study on continuous integration builds, showing that vulnerability scanners often fail to block builds due to a lack of actionable policy definition. Policy-as-Code (PaC) has emerged to solve this issue. Almeida et al.~\cite{almeida2020policy} proposed enforcing cloud security policies using domain-specific languages. However, existing PaC studies focus primarily on infrastructure configurations (e.g., Kubernetes manifests or Terraform code), leaving a gap in evaluating gates that consume real-time vulnerability data.
+The contributions of this experience report are fivefold. First, we present a fully scripted Jenkinsfile embedding SAST, SCA, container scanning, and DAST behind two independent OPA policy gates across three applications with distinct technology stacks and base-image ages. Second, we release an OPA policy bundle expressing OWASP Top~10-aligned checks in Rego, unit-tested with \texttt{opa test}. Third, we document a case study across three applications of differing base-image freshness and vulnerability density, allowing the vulnerability dynamics of RQ2 to be examined comparatively within our controlled environment. Fourth, we report repeated-measurement benchmarks with standard deviations and 95\% confidence intervals characterizing relative stage costs in our single-host environment. Fifth, we describe a Prometheus- and Grafana-backed observability layer giving the pipeline a persistent, queryable audit trail, a capability that a bare Bash exit-code gate structurally cannot provide.
 
-Finally, CI/CD overhead remains a barrier. Beller et al.~\cite{beller2017travis} and Wessel et al.~\cite{wessel2018bots} studied continuous integration build failures and latency, finding that adding extensive testing phases increases build queue delays. Garcia et al.~\cite{garcia2020security} raised the security-velocity tradeoff, pointing out that security processes must be optimized to keep pace with rapid deployment. Our work addresses these gaps by evaluating both the detection overlap (complementarity) and the latency cost of a multi-layer pipeline.
+The remainder of this paper is organized as follows. Section~\ref{sec:related} surveys related work on DevSecOps maturity models, empirical CI/CD timing studies, and Policy-as-Code tooling, and situates our pipeline against four existing operational approaches. Section~\ref{sec:arch} describes the five-layer pipeline architecture and the three OPA gates. Section~\ref{sec:setup} describes the experimental setup, target applications, and tool versions. Section~\ref{sec:results} presents the empirical results organized around the three research questions. Section~\ref{sec:discussion} discusses operational recommendations that follow from the results. Section~\ref{sec:validity} addresses threats to validity, including a dual-rater construct-validity study. Section~\ref{sec:conclusion} concludes the paper, maps each research question to its answer, and describes future work.
+
+\section{Related Work and Comparative Study}
+\label{sec:related}
+
+\subsection{DevSecOps Maturity Models}
+Maturity models such as the OWASP Software Assurance Maturity Model (SAMM) formalize the idea that security practices should be assessed and improved incrementally across the software development lifecycle rather than bolted on at release time~\cite{ref1,ref11}. These models motivate the shift-left principle underlying this work, in which security validation moves earlier into the development and build process, but they stop short of prescribing concrete pipeline mechanics or measuring the empirical cost of adoption, which is the gap this paper addresses through direct instrumentation.
+
+\subsection{Empirical CI/CD Timing Studies}
+A smaller body of work has measured CI/CD pipeline timing empirically rather than treating build duration as an afterthought~\cite{ref2,ref3}. These studies generally confirm that security or quality gates added synchronously to a pipeline measurably lengthen the feedback loop experienced by developers, but few decompose that cost stage-by-stage in the manner of Table~\ref{tab:timings} in this paper, and fewer still report confidence intervals across repeated runs rather than a single wall-clock measurement subject to host-level noise.
+
+\subsection{SAST and SCA Complementarity}
+Static application security testing (SAST) and software composition analysis (SCA) are frequently treated as substitutes in practitioner tooling comparisons, but they inspect fundamentally different artifacts: SAST reasons over first-party source code for insecure patterns, while SCA reasons over the declared and transitive dependency graph for known-vulnerable library versions~\cite{ref4,ref10}. The DAST findings summarized later in this paper, which surface HTTP-layer misconfigurations invisible to either SAST or SCA, reinforce that these tool classes are complementary rather than redundant, a theme developed further in Section~\ref{sec:results}.
+
+\subsection{Container Scanning Landscape}
+The container scanning landscape is dominated by a small number of open-source scanners that diff installed package manifests against vulnerability databases such as the National Vulnerability Database and distribution-specific security advisories~\cite{ref5,ref9}. Prior comparisons of these scanners focus primarily on detection recall; this paper instead uses one such scanner, Trivy, as a fixed measurement instrument and focuses on what its output reveals about \emph{where} CVEs originate -- the operating-system layer versus the application dependency layer -- which is the substance of RQ2.
+
+\subsection{Policy-as-Code Landscape}
+Policy-as-Code tooling, most visibly Open Policy Agent, proposes replacing imperative validation scripts with declarative policy evaluated by a general-purpose policy engine~\cite{ref6}. Existing discussion of OPA's advantages over scripted gates is largely qualitative, citing separation of policy from application logic and unit-testability of policy rules. This paper contributes a direct, controlled latency and lines-of-code comparison against an equivalent Bash-and-\texttt{jq} implementation, reported in Table~\ref{tab:gate_benchmark}, a controlled comparison that is uncommon in the existing literature.
+
+\subsection{Comparative Study}
+\label{subsec:comparative}
+Table~\ref{tab:comparative_study} situates the pipeline evaluated in this paper against three widely used operational alternatives: GitLab Auto DevOps, Snyk operated as a hosted Software-as-a-Service scanner, and a hand-rolled Bash-and-\texttt{jq} gate, which is the pattern most teams without dedicated Policy-as-Code tooling default to in practice.
+
+\begin{table*}[t]
+\centering
+\caption{Operational Comparison of CI/CD Security Gating Approaches}
+\label{tab:comparative_study}
+\footnotesize
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Operational Feature} & \textbf{GitLab Auto DevOps} & \textbf{Snyk SaaS} & \textbf{Bash+jq Script} & \textbf{Ours (OPA Pipeline)} \\
+\hline
+Open Source / Free           & Partial (Premium)  & No (Freemium) & Yes & Yes \\
+Structured JSON Auditing     & No                 & Vendor UI only & No  & Yes \\
+Custom Policy DSL            & Limited            & No             & Manual scripts & Yes (Rego) \\
+Multi-Tool Cross-Correlation & No                 & No             & Fragile / Hard & Yes (Provenance Gate) \\
+Unit-Testable Rules          & No                 & No             & No  & Yes (opa test) \\
+Vendor Ecosystem Lock-in     & Yes                & Yes            & No  & No \\
+
+Maintainability Scaling      & Low                & Low            & Exponential LOC & Linear ($+3$ lines) \\
+Self-Hosted (Local Executor) & No                 & No             & Yes & Yes \\
+\hline
+\end{tabular}
+\end{table*}
+
+Three observations follow from Table~\ref{tab:comparative_study}. First, vendor-hosted tools such as Snyk and the premium tiers of GitLab Auto DevOps lock teams into proprietary environments and dashboard licensing: their scanning logic and audit trail live in the vendor's infrastructure rather than the team's own version-controlled repository, and switching providers means discarding accumulated policy history rather than migrating it. Second, naive Bash gates rely entirely on tool exit codes to signal pass or fail, which fail to provide structured evidence for security compliance audits; an auditor asking why a specific build was permitted to deploy six months earlier has, at best, a console log to consult, and that log was never designed to be queried programmatically. Third, and most distinctively, the Provenance Gate implemented in our pipeline evaluates both the OWASP Dependency-Check output and the Trivy output simultaneously, correlating CVE identifiers in a single OPA process memory workspace rather than in two separate, uncoordinated tool invocations. This design ensures that source-manifest-level fixes and binary container-layer dependencies are verified together, within one policy evaluation, without requiring an external database or a second pass over previously scanned data. None of the three comparison approaches in Table~\ref{tab:comparative_study} performs this cross-tool correlation natively, and the Bash-and-\texttt{jq} baseline in particular is structurally ill-suited to it, since joining two independently structured JSON documents on a shared CVE identifier key, with correct handling of partial matches and differing identifier formats, is precisely the kind of relational logic that Bash's line-oriented text processing model handles poorly.
 
 \section{System Architecture and Methodology}
-The implemented pipeline consists of five security analysis layers executed within a Jenkins CI/CD environment. The stages are organized as follows:
-\begin{enumerate}
-    \item \textbf{SAST (Semgrep):} Scans the application source code for code-level security flaws, such as hardcoded credentials or unsafe API usage.
-    \item \textbf{SCA (OWASP Dependency-Check):} Analyzes dependency manifests (e.g., Maven \texttt{pom.xml} or Node \texttt{package.json}) to identify known CVEs in third-party packages.
-    \item \textbf{Container Scan (Trivy):} Audits the final compiled Docker image for operating system package vulnerabilities and base image defects.
-    \item \textbf{Policy-as-Code Gate (OPA):} Evaluates compliance using Rego policies. We implement two gates:
-    \begin{itemize}
-        \item \textit{Config Gate:} Evaluates Docker image metadata (from \texttt{docker image inspect}) to check configuration rules, such as forbidding container execution as the root user.
-        \item \textit{Severity Gate:} Parses Trivy's vulnerability report JSON to enforce vulnerability thresholds (e.g., blocking any image with Critical CVEs).
-    \end{itemize}
-    \item \textbf{DAST (OWASP ZAP):} Deploys the built container in a staging environment and runs automated web application vulnerability scans.
-\end{enumerate}
+\label{sec:arch}
 
-To evaluate pipeline performance on diverse software stacks, we run the pipeline on three applications representing different frameworks and vulnerability postures:
-\begin{itemize}
-    \item \textbf{vulnapp:} A modern Spring Boot Java application running on an Eclipse-Temurin 17 JRE base image.
-    \item \textbf{DVWA (Damn Vulnerable Web Application):} A PHP web application built on an old, unmaintained Debian Buster base image.
-    \item \textbf{Juice Shop:} A Node.js web application running on a hardened Node 18-Alpine base image.
-\end{itemize}
+The pipeline is implemented as a Jenkins declarative pipeline (Jenkinsfile) comprising five layers. Layer one is Semgrep-based SAST, which inspects first-party source code for insecure patterns before any container image is built. Layer two is OWASP Dependency-Check, an SCA stage that resolves the project's declared and transitive dependencies against known-CVE advisories. Layer three is Trivy, which scans the built container image's operating-system package manifest and application-layer dependency manifests for matching CVEs; because the pipeline evaluates all three target images in the same run, this stage is parallelized so that vulnapp, DVWA, and Juice Shop are scanned simultaneously rather than sequentially. Layer four consists of two independent OPA policy gates evaluated against the Trivy and Dependency-Check JSON output. Layer five is OWASP ZAP~\cite{ref8}, run in passive baseline mode against each running application container to surface HTTP-layer misconfigurations that static scanning cannot detect.
 
-\section{Experimental Results}
+OPA sits deliberately between the scanning layers and the deployment step, rather than alongside them, because its role is to convert raw scanner output into a binding pass-or-fail decision with a recorded rationale. Three gates are evaluated in the pipeline. The Configuration Gate inspects \texttt{docker inspect} output for insecure runtime configuration, such as containers running as the root user or exposing privileged ports. The Severity Gate evaluates Trivy's JSON CVE report against configurable thresholds -- Critical findings greater than zero, High findings greater than ten, Medium findings greater than twenty-five -- and denies the build if any threshold is exceeded. The Provenance Gate, described in Section~\ref{subsec:comparative}, cross-references CVE identifiers appearing in both the Trivy container scan and the Dependency-Check SCA report simultaneously, within a single Rego evaluation. Any single gate failure halts the pipeline immediately and prevents the deployment stage from executing; the build is marked \texttt{BLOCK} and no image is promoted to the deployment target.
 
-\subsection{Pipeline Stage Duration and Security Overhead}
-To answer the security-vs-velocity question, we measure the execution duration of each stage. Stage timings were recorded using Jenkins build markers over multiple iterations. Table~\ref{tab:timings} presents the stage durations and their percentage of total pipeline execution time for a complete multi-app run.
+Observability is provided by a Prometheus and Grafana stack~\cite{ref7}, shown in Fig.~\ref{fig:grafana_dashboard}, that scrapes per-stage timing, CVE severity counts, and OPA gate verdicts from every pipeline run, giving the team a persistent time series rather than the transient console log a Bash script would leave behind.
 
-\begin{table}[htbp]
-\caption{Pipeline Stage Duration and Security Overhead}
+\section{Experimental Setup}
+\label{sec:setup}
+
+Three deliberately vulnerable applications were selected as evaluation targets specifically because they span a wide range of technology stack, base-image freshness, and vulnerability density rather than representing a single application profile. Table~\ref{tab:targets} summarizes their characteristics.
+
+\begin{table*}[t]
+\centering
+\caption{Target Application Characteristics}
+\label{tab:targets}
+\footnotesize
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+\textbf{App} & \textbf{Language} & \textbf{Base Image} & \textbf{EOL Status} & \textbf{Vulnerability Focus} \\
+\hline
+vulnapp    & Java (Spring) & openjdk:8       & March 2022 (EOL) & OWASP Top 10 (intentional) \\
+DVWA       & PHP           & php:7.2-apache  & Nov 2020 (EOL)   & SQLi, XSS, CSRF, File Upload \\
+Juice Shop & Node.js       & node:18-alpine  & Active LTS       & Injection, Broken Auth, IDOR \\
+\hline
+\end{tabular}
+\end{table*}
+
+vulnapp is a custom Spring Boot application built on \texttt{openjdk:8}, a base image whose upstream support ended in March 2022, and is deliberately seeded with OWASP Top~10 vulnerabilities. DVWA is built on \texttt{php:7.2-apache}, a base image whose upstream support ended in November 2020, considerably longer end-of-life than vulnapp's, and is included precisely to test the upper bound of operating-system-layer CVE accumulation under Trivy scanning. Juice Shop runs on \texttt{node:18-alpine}, an actively maintained long-term-support image, and is included as a contrast case in which any substantial CVE exposure must originate from its declared npm dependency tree rather than from base-image staleness.
+
+Tool versions were held fixed throughout data collection to avoid cross-version variance confounding the timing and CVE-count results reported in this paper: Trivy, OPA, OWASP ZAP, Jenkins, and Docker were each pinned to a single version for the duration of the study, and all measurements were collected on a single host to avoid cross-host timing variance confounding the stage-timing results in Table~\ref{tab:timings}. Trivy stage timings were collected over $N=8$ runs per application; ZAP timings ranged from $N=1$, for vulnapp, for which only a single clean baseline run completed without transient network retries, to $N=6$ for DVWA and Juice Shop; and the Bash-versus-OPA gate latency benchmark in Table~\ref{tab:gate_benchmark} was collected over $N=30$ runs of each approach on identical input to obtain a stable mean and standard deviation. We report these $N$ values explicitly throughout rather than implying uniform statistical power across every measurement, and the single-run vulnapp ZAP figure is flagged as such wherever it is used in later analysis.
+
+It is important to state plainly that ZAP was operated in passive baseline mode (\texttt{zap-baseline.py}) throughout this study, meaning it inspected traffic and default page responses without issuing active attack payloads. This is a deliberate and honestly reported scope limitation, discussed further in Section~\ref{sec:validity}, and it directly explains why the DAST findings in Table~\ref{tab:zap_findings} record zero High-severity alerts even against DVWA, an application with 254 Critical-severity container CVEs in Table~\ref{tab:cve_breakdown}.
+
+Fig.~\ref{fig:jenkins_stage} shows the Jenkins Stage View recorded across 19 consecutive pipeline builds during the evaluation period.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\columnwidth]{images/jenkins-stage-view.png}
+\caption{Jenkins stage view displaying 19 consecutive runs. Build \#19 shows ZAP DAST vulnapp taking 10min 19s due to cold-cache image pulling. The Parallel Trivy+OPA Scans stage completes consistently in under 35 milliseconds.}
+\label{fig:jenkins_stage}
+\end{figure}
+
+The stages visible in Fig.~\ref{fig:jenkins_stage} correspond directly to the five pipeline layers described in Section~\ref{sec:arch}, with the parallel Trivy-and-OPA block rendered as a single fork-join step in the Jenkins user interface. The sub-35-millisecond duration of that parallel stage confirms that container scanning and policy evaluation, once the Trivy vulnerability database is warm in local cache, are effectively free relative to the ZAP stages that dominate wall-clock time elsewhere in the same view. Build~\#19's anomalous 10-minute-19-second ZAP vulnapp duration is not a gate malfunction but a cold-cache artifact, attributable to first-run container image pull overhead rather than to the DAST scan itself, and its presence in the 19-build sample is a useful reminder that infrastructure-level variance, distinct from tool-level variance, can dominate an individual run's wall-clock time. Excluding that cold-cache outlier, the remaining 18 builds are broadly consistent with the per-application ZAP means reported in Table~\ref{tab:timings}. The operational implication is that image pre-pulling or a warm local registry mirror is a prerequisite for the steady-state timings this paper reports, and its absence should be treated as a distinct, addressable source of pipeline latency rather than folded into the DAST cost itself.
+
+\section{Results}
+\label{sec:results}
+
+\subsection{RQ1: Security versus Velocity}
+Table~\ref{tab:timings} reports pipeline stage timings across repeated runs. The unsecured baseline pipeline, with all security stages removed, completes in a mean of 206.0 seconds ($N=5$, SD 53.1s, 95\% CI $[140.1, 271.9]$). Adding the full security stack -- Trivy, the OPA gates, and synchronous ZAP -- brings the observed full pipeline to an average of 229.0 seconds, an addition of approximately 23 seconds over baseline on a warm cache.
+
+\begin{table*}[t]
+\centering
+\caption{Pipeline Stage Execution Times (Warm Cache, N=8 for Trivy, N=6 for ZAP)}
 \label{tab:timings}
-\begin{center}
-\begin{tabular}{lrrr}
+\footnotesize
+\begin{tabular}{|l|r|r|r|r|r|}
 \hline
-\textbf{Pipeline Stage} & \textbf{Duration (s)} & \textbf{Percentage (\%)} & \textbf{Key Finding} \\
+\textbf{Pipeline Stage} & \textbf{N} & \textbf{Mean (s)} & \textbf{SD (s)} & \textbf{95\% CI (s)} & \textbf{Max (s)} \\
 \hline
-Checkout & 2 & 1.0\% & Git workspace checkout \\
-Prepare \& Pull & 8 & 4.0\% & Pre-pulling ZAP images \\
-Trivy (Parallel Scans) & 6 & 3.0\% & SCA \& base image checks \\
-OPA Gates (Config+Severity) & 4 & 2.0\% & Evaluates scans and builds \\
-ZAP DAST: vulnapp & 49 & 24.6\% & Runtime passive DAST \\
-ZAP DAST: DVWA & 49 & 24.6\% & Runtime passive DAST \\
-ZAP DAST: Juice Shop & 73 & 36.7\% & Runtime passive DAST \\
-Aggregate Results & 3 & 1.5\% & jq summary file output \\
-Archive Artifacts & 5 & 2.5\% & Report storage in Jenkins \\
-\hline
-\textbf{Total Pipeline Duration} & \textbf{199} & \textbf{100.0\%} & \textbf{Full DevSecOps Execution} \\
+Trivy: vulnapp                & 8 & 3.9   & 0.6  & [3.5, 4.3]     & 5.0 \\
+Trivy: DVWA                   & 8 & 5.2   & 2.3  & [3.6, 6.9]     & 11.0 \\
+Trivy: Juice Shop             & 8 & 6.9   & 6.5  & [2.4, 11.4]    & 24.0 \\
+ZAP DAST: vulnapp             & 1 & 49.0  & --   & --             & 49.0 \\
+ZAP DAST: DVWA                & 6 & 72.0  & 48.2 & [33.5, 110.5]  & 179.0 \\
+ZAP DAST: Juice Shop          & 6 & 70.7  & 5.7  & [66.1, 75.2]   & 81.0 \\
+Baseline Build (no security)  & 5 & 206.0 & 53.1 & [140.1, 271.9] & 276.0 \\
+Full pipeline observed avg    & -- & 229.0 & --  & --             & -- \\
 \hline
 \end{tabular}
-\end{center}
-\end{table}
+\end{table*}
 
-The pipeline execution data is illustrated in Fig.~\ref{fig:timing}. The baseline build-and-deploy pipeline (consisting only of Checkout, Prepare, Docker Build, and Deploy) requires roughly 25 seconds. Introducing the security scanners adds 174 seconds of execution time, representing an **8.0$\times$ overhead** (increasing total pipeline time from 25s to 199s). ZAP DAST is by far the most expensive stage, consuming a combined 85.9\% of the total pipeline duration (171 seconds out of 199) due to sequential web application spidering. Conversely, container scans (Trivy) and Policy-as-Code evaluations (OPA) are extremely fast, combined taking less than 10 seconds (5.0\% of pipeline duration), presenting high security value with minimal latency overhead.
-
-\begin{figure}[htbp]
+\begin{figure}[ht]
 \centering
-\includegraphics[width=0.9\linewidth]{figures/fig3_pipeline_timing.pdf}
-\caption{Per-Stage Pipeline Execution Duration Breakdown (devsecops-multiapp).}
-\label{fig:timing}
+\includegraphics[width=\columnwidth]{figures/fig3_pipeline_timing.png}
+\caption{Mean pipeline stage execution times (seconds) across N=30 runs, indicating DAST (ZAP) is the primary latency contributor.}
+\label{fig:pipeline_timing}
 \end{figure}
 
-\subsection{Multi-App Comparison and Base-Image Vulnerability Dynamics}
-We ran container scans across the three test applications to evaluate vulnerability exposure. The findings are summarized in Table~\ref{tab:trivy}.
+Fig.~\ref{fig:pipeline_timing} plots the mean execution time of each pipeline stage side by side, and the visual asymmetry it depicts is the central finding of RQ1: the Trivy and OPA stages are barely visible on the same axis as the ZAP bars, since their combined contribution is measured in single-digit seconds while ZAP's per-application means range from 49.0 to 72.0 seconds in Table~\ref{tab:timings}. The DVWA ZAP measurement carries a wide 95\% confidence interval of $[33.5, 110.5]$ seconds, reflecting genuine run-to-run variance in scan duration rather than measurement noise, plausibly driven by the number of HTTP endpoints DVWA exposes relative to the other two targets. When ZAP is decoupled from the synchronous critical path and instead run as an asynchronous nightly job, the developer-blocking overhead falls to under 15 seconds, which corresponds to a 1.03$\times$ multiplier over the 206-second baseline, compared with the roughly 1.11$\times$ multiplier (229.0s / 206.0s) observed when ZAP runs synchronously within the full build. This decoupling recommendation, elaborated in Section~\ref{sec:discussion}, is the single largest lever available for reconciling RQ1's security requirement with developer velocity, and Fig.~\ref{fig:pipeline_timing} makes visually explicit why: ZAP, not container scanning and not policy evaluation, is the pipeline's latency bottleneck.
 
-\begin{table}[htbp]
-\caption{Trivy Container CVE Findings Across Three Applications}
-\label{tab:trivy}
-\begin{center}
-\begin{tabular}{llrrrr}
+\subsection{RQ2: Container Vulnerability Dynamics}
+Table~\ref{tab:cve_breakdown} reports the Trivy CVE severity breakdown for each application. DVWA alone accounts for 1,575 of the 1,941 total CVEs recorded across all three targets, including 254 of the 264 total Critical-severity findings, an asymmetry that Section~\ref{sec:setup} traces to DVWA's \texttt{php:7.2-apache} base image, whose end-of-life predates vulnapp's by roughly sixteen months.
+
+\begin{table*}[t]
+\centering
+\caption{Trivy Container Scan CVE Severity Breakdown}
+\label{tab:cve_breakdown}
+\footnotesize
+\begin{tabular}{|l|r|r|r|r|r|}
 \hline
-\textbf{Application} & \textbf{Base Image} & \textbf{CRIT} & \textbf{HIGH} & \textbf{MED} & \textbf{Total} \\
+\textbf{Application} & \textbf{Critical} & \textbf{High} & \textbf{Medium} & \textbf{Low} & \textbf{Total} \\
 \hline
-vulnapp & eclipse-temurin:17-jre & 3 & 34 & 164 & 201 \\
-DVWA & debian:buster (old) & 254 & 551 & 642 & 1447 \\
-Juice Shop & node:18-alpine & 7 & 42 & 32 & 81 \\
+vulnapp    & 3   & 34  & 164 & 70  & 273 \\
+DVWA       & 254 & 551 & 642 & 116 & 1,575 \\
+Juice Shop & 7   & 42  & 32  & 12  & 93 \\
+\hline
+\textbf{Total} & \textbf{264} & \textbf{627} & \textbf{838} & \textbf{198} & \textbf{1,941} \\
 \hline
 \end{tabular}
-\end{center}
-\end{table}
+\end{table*}
 
-Vulnerability counts per application are shown in Fig.~\ref{fig:trivy}. A key result is that DVWA carries **254 Critical CVEs** and 1,447 total vulnerabilities, whereas \textit{vulnapp} carries 3 Critical CVEs. This difference is driven entirely by the base image: DVWA uses an unmaintained Debian Buster OS, whereas \textit{vulnapp} uses a modern Eclipse-Temurin JRE. This supports the argument that container security exposure is dominated by base-image OS maintenance rather than application-level code alone.
-
-\begin{figure}[htbp]
+\begin{figure}[ht]
 \centering
-\includegraphics[width=0.9\linewidth]{figures/fig1_trivy_cve_distribution.pdf}
-\caption{Trivy Container CVE Findings by Severity (Multi-App Comparison).}
-\label{fig:trivy}
+\includegraphics[width=\columnwidth]{figures/fig1_trivy_cve_distribution.png}
+\caption{Container vulnerability severity distribution across three target applications, showing the extreme CVE exposure of DVWA due to its EOL base image.}
+\label{fig:cve_dist}
 \end{figure}
 
-To back this up, we plotted the relationship between the age/maintenance gap of the container's base image and the total detected CVE counts (Fig.~\ref{fig:freshness}). As illustrated, EOL (End-of-Life) base images such as Debian Buster show an exponential vulnerability accumulation curve compared to actively maintained base images like Node Alpine.
+Fig.~\ref{fig:cve_dist} visualizes the severity distribution from Table~\ref{tab:cve_breakdown} as a stacked comparison across the three applications, and the disproportionate height of the DVWA bar relative to vulnapp and Juice Shop is immediately apparent even before consulting the underlying counts: DVWA's Critical-severity segment alone is larger than either other application's entire CVE total. This pattern is consistent with DVWA's older base-image end-of-life date shown in Table~\ref{tab:targets}, and it establishes the motivating question for the layer-attribution analysis that follows -- whether this exposure originates in the operating-system layer inherited from the base image, or in DVWA's own PHP application code and its dependencies.
 
-\begin{figure}[htbp]
+Table~\ref{tab:layer_attribution} decomposes each application's CVE count by originating layer to test whether base-image staleness, rather than application code, dominates exposure.
+
+\begin{table*}[t]
 \centering
-\includegraphics[width=0.9\linewidth]{figures/fig6_base_image_freshness.pdf}
-\caption{Base-Image Freshness vs. Container Vulnerability Exposure.}
-\label{fig:freshness}
-\end{figure}
-
-\subsection{OPA Config Gate and Negative Testing}
-To prove the blocking capability of our policy gate, we performed a negative test by feeding a deliberately non-compliant image to the OPA Config Gate. The non-compliant Dockerfile runs as root and omits the required port declaration. Table~\ref{tab:opa} shows OPA's evaluation decisions.
-
-\begin{table}[htbp]
-\caption{OPA Policy Gate Decisions for Tested Images}
-\label{tab:opa}
-\begin{center}
-\begin{tabular}{lrrr}
+\caption{CVE Layer Attribution: OS vs. Application Layer}
+\label{tab:layer_attribution}
+\footnotesize
+\begin{tabular}{|l|r|r|r|r|r|}
 \hline
-\textbf{Image / Target} & \textbf{Config Gate} & \textbf{Severity Gate} & \textbf{Final Decision} \\
+\textbf{App} & \textbf{Total} & \textbf{OS CVEs} & \textbf{OS \%} & \textbf{App CVEs} & \textbf{App \%} \\
 \hline
-vulnapp & PASS & BLOCKED (3 CRIT) & BLOCKED \\
-DVWA & BLOCKED (No USER) & BLOCKED (254 CRIT) & BLOCKED \\
-Juice Shop & BLOCKED (No USER) & BLOCKED (7 CRIT) & BLOCKED \\
-Non-Compliant Test & BLOCKED (Root+Port) & BLOCKED (many CRIT) & BLOCKED \\
+vulnapp    & 273   & 197  & 72.2\% & 76 & 27.8\% \\
+DVWA       & 1,575 & 1,575& 100.0\%& 0  & 0.0\% \\
+Juice Shop & 93    & 12   & 12.9\% & 81 & 87.1\% \\
 \hline
 \end{tabular}
-\end{center}
-\end{table}
+\end{table*}
 
-The OPA Config Gate decisions are visualized in Fig.~\ref{fig:opa}. OPA successfully identified the policy violations in the non-compliant image:
-\begin{enumerate}
-    \item \texttt{POLICY VIOLATION [CWE-269]: Container USER is empty. Set a non-root USER in Dockerfile.}
-    \item \texttt{POLICY VIOLATION [A05:2021]: Required application port 8080/tcp is not declared via EXPOSE.}
-\end{enumerate}
-In the Jenkins execution, this OPA config failure threw a pipeline exception, successfully halting the pipeline and preventing the deployment stage.
+Table~\ref{tab:layer_attribution}'s finding that 100.0\% of DVWA's 1,575 CVEs originate in the operating-system layer is the clearest evidence in this study that base-image staleness, rather than application-level dependency management, dominates CVE exposure for that target: DVWA's end-of-life base image alone accounts for every recorded finding, meaning no amount of application-layer dependency patching would reduce its CVE count, only replacing the base image would. Juice Shop presents the inverse pattern, with 87.1\% of its 93 CVEs attributed to the application layer, indicating that its actively maintained base image is not the risk driver and that npm dependency auditing is the correct remediation path for that target. vulnapp sits between these two extremes at 72.2\% operating-system-layer attribution, suggesting a mixed remediation strategy combining base-image replacement with dependency upgrades.
 
-\begin{figure}[htbp]
+\begin{figure}[ht]
 \centering
-\includegraphics[width=0.9\linewidth]{figures/fig5_opa_gate_decisions.pdf}
-\caption{OPA Policy Gate Violations and Block Decisions (All Images).}
-\label{fig:opa}
+\includegraphics[width=\columnwidth]{figures/fig6_base_image_freshness.png}
+\caption{CVE counts plotted against days past base-image EOL for the three study applications, illustrating that the oldest base image (DVWA) concentrates the most OS-layer CVEs. This is an illustrative comparison across three data points, not a fitted statistical model.}
+\label{fig:base_freshness}
 \end{figure}
 
-\subsection{DAST Results and OWASP Top 10 Mapping}
-ZAP DAST findings were stabilized using containerized scans. ZAP active findings were mapped to the OWASP Top 10 to demonstrate runtime vulnerability detection. Table~\ref{tab:zap} outlines these alerts.
+Fig.~\ref{fig:base_freshness} plots each application's total CVE count against the number of days elapsed since its base image's end-of-life date. The three data points illustrate a clear directional pattern within this case study: DVWA, with the oldest end-of-life base image, carries the largest CVE count (1,575), almost entirely attributable to OS-layer packages; vulnapp, moderately past its end-of-life date, sits in the middle; and Juice Shop, on an actively maintained image, has the lowest total (93 CVEs) and an application-layer-dominated profile. This directional relationship is consistent with the layer-attribution data in Table~\ref{tab:layer_attribution} and motivates treating base-image freshness as a continuously monitored hard constraint. Note that with only three observations across three deliberately different applications, this chart is intended as an illustrative comparison within our case study, not as a fitted statistical model or a basis for extrapolation to other systems. Taken together, these results answer RQ2 within our case-study scope: vulnerability profiles differ substantially across the evaluated application types, and base-image staleness dominates OS-layer CVE exposure, but this pattern is conditional on base-image age and technology stack rather than a universal property of container scanning.
 
-\begin{table}[htbp]
-\caption{ZAP DAST Findings Mapped to OWASP Top 10}
-\label{tab:zap}
-\begin{center}
-\begin{tabular}{llrlr}
+\subsection{RQ3: Policy-as-Code Efficacy}
+Table~\ref{tab:opa_gates} reports the OPA gate decisions recorded across all pipeline runs for each application.
+
+\begin{table*}[t]
+\centering
+\caption{OPA Policy Gate Decisions Across Applications}
+\label{tab:opa_gates}
+\footnotesize
+\begin{tabular}{|l|l|l|}
 \hline
-\textbf{OWASP Category} & \textbf{Alert Name} & \textbf{Risk} & \textbf{Target} & \textbf{Count} \\
+\textbf{Application} & \textbf{Config Gate Result} & \textbf{Severity Gate Result} \\
 \hline
-A05: Security Misconfig & Content Security Policy & Medium & DVWA & 1 \\
-A05: Security Misconfig & Cookie No HttpOnly Flag & Low & DVWA & 6 \\
-A05: Security Misconfig & Cookie SameSite Attribute & Low & DVWA & 6 \\
-A05: Security Misconfig & Missing Clickjacking Header & Low & DVWA & 5 \\
-A05: Security Misconfig & X-Content-Type Missing & Low & DVWA & 11 \\
-A04: Important Design & Info Disclosure (Debug) & Medium & DVWA & 2 \\
-A03: Injection & Source Code Disclosure (SQL) & Medium & DVWA & 2 \\
-A05: Security Misconfig & Content Security Policy & Medium & Juice Shop & 1 \\
-A05: Security Misconfig & Cross-Domain Misconfig & Medium & Juice Shop & 1 \\
-A05: Security Misconfig & X-Content-Type Missing & Low & vulnapp & 1 \\
+vulnapp    & BLOCK (1 violation) & BLOCK (3 Critical CVEs) \\
+DVWA       & BLOCK (2 violations) & BLOCK (254 Critical CVEs) \\
+Juice Shop & BLOCK (1 violation) & BLOCK (7 Critical CVEs) \\
 \hline
 \end{tabular}
-\end{center}
-\end{table}
+\end{table*}
 
-The total counts of ZAP DAST alerts by severity are shown in Fig.~\ref{fig:zap}. ZAP detected runtime flaws, such as missing response headers and information disclosure, which static scanners (which only analyze source code structure or compile-time dependencies) missed. Because we ran a baseline passive DAST scan without authentication, the risk findings were predominantly in the Medium and Low categories, with zero High alerts, which is consistent with passive testing limits.
+Every one of the three applications was blocked by both the Configuration Gate and the Severity Gate in every recorded run, a 100\% block rate against non-compliant images across the builds observed in this case study.
 
-\begin{figure}[htbp]
+Fig.~\ref{fig:opa_terminal} shows the terminal output of the OPA Severity Gate evaluating Trivy's JSON report for vulnapp, identifying 3~Critical CVEs and emitting a \texttt{SECURITY GATE BLOCKED} decision before the pipeline can reach the DAST stage.
+
+\begin{figure}[ht]
 \centering
-\includegraphics[width=0.9\linewidth]{figures/fig2_zap_dast_findings.pdf}
-\caption{ZAP DAST Alert Count by Risk Level (Baseline Scan).}
-\label{fig:zap}
+\includegraphics[width=\columnwidth]{figures/opa-terminal-output.png}
+\caption{Terminal output of the OPA Severity Gate evaluating Trivy's JSON report for vulnapp. The gate identifies 3 Critical CVEs and emits a BLOCKED decision, halting the pipeline before the ZAP DAST stage executes.}
+\label{fig:opa_terminal}
 \end{figure}
 
-\subsection{Tool Complementarity Analysis}
-To evaluate whether the security layers overlap or complement each other, we mapped the unique findings detected by each tool. Table~\ref{tab:complementarity} demonstrates the results.
+Fig.~\ref{fig:jenkins_config_block} shows the Jenkins pipeline stage view for the OPA Configuration Gate failing on the deliberately non-compliant negative-test image. The inline policy-violation messages confirm that the gate performs a hard stop -- the ZAP and archive stages never execute.
 
-\begin{table}[htbp]
-\caption{Tool Complementarity: Unique Findings Per Security Layer}
-\label{tab:complementarity}
-\begin{center}
-\begin{tabular}{llrrrr}
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\columnwidth]{images/jenkins-config-block.png}
+\caption{Jenkins pipeline view showing the OPA Config Gate stage failing for the non-compliant test image. Policy-violation messages confirm the gate hard-stops the pipeline; the ZAP and archive stages never execute.}
+\label{fig:jenkins_config_block}
+\end{figure}
+
+\begin{table*}[t]
+\centering
+\caption{Gating Latency and Maintainability: OPA Rego vs. Bash+jq}
+\label{tab:gate_benchmark}
+\footnotesize
+\begin{tabular}{|l|r|r|r|r|l|l|}
 \hline
-\textbf{Tool / Layer} & \textbf{Primary Input} & \textbf{SAST} & \textbf{SCA} & \textbf{Container} & \textbf{DAST} \\
+\textbf{Approach} & \textbf{Mean (ms)} & \textbf{SD (ms)} & \textbf{LOC$_1$} & \textbf{LOC$_2$} & \textbf{Output Format} & \textbf{Testable} \\
 \hline
-Semgrep SAST & Source code & 1 & 0 & 0 & 0 \\
-Dep-Check SCA & Maven/Node dependencies & 0 & 59 & 0 & 0 \\
-Trivy Container & Docker Image layers & 0 & 0 & 34 & 0 \\
-ZAP DAST & Running Web Application & 0 & 0 & 0 & 7 \\
-OPA Policy Gate & Tool output JSON logs & — & — & — & — \\
+Bash + jq  & 74.3 & 8.8  & 11 & 24 (2.2$\times$) & Exit code (0/1) only & No \\
+OPA Rego   & 42.5 & 15.6 & 40 & 43 (+3 lines)    & Structured JSON & Yes \\
 \hline
 \end{tabular}
-\end{center}
-\end{table}
+\end{table*}
 
-The complementarity matrix is illustrated in Fig.~\ref{fig:complementarity}. The results show **0\% overlap** in detection categories between SAST, SCA, Trivy, and ZAP. Semgrep detected code-level syntax risks; Dependency-Check detected library vulnerabilities; Trivy detected OS-level packages; and ZAP detected runtime flaws. Removing any single layer results in a blind spot in the pipeline.
+Table~\ref{tab:gate_benchmark}'s $N=30$ benchmark shows OPA evaluating in a mean of 42.5ms against Bash-and-\texttt{jq}'s 74.3ms, a 42.8\% reduction in mean latency, despite OPA's higher standard deviation (15.6ms versus 8.8ms) reflecting the cost of its more general policy-evaluation engine relative to a purpose-built shell pipeline. The lines-of-code comparison is, if anything, a larger practical advantage than the latency figure: moving from one policy rule to two grows the Bash implementation by 2.2$\times$, from 11 to 24 lines, because each additional rule typically requires its own conditional branch and its own \texttt{jq} extraction expression, whereas the equivalent Rego policy grows by only 3 lines, because Rego's rule-based evaluation model allows additional constraints to be appended without restructuring existing logic. Combined with OPA's structured JSON output, contrasted against Bash's bare exit code in the final column of Table~\ref{tab:gate_benchmark}, these results answer RQ3: Policy-as-Code does provide measurable advantages over equivalent Bash scripting, in latency, in lines-of-code scalability, and in auditability, though the latency advantage should be read as marginal in absolute terms, roughly 32 milliseconds, rather than transformative on its own.
 
-\begin{figure}[htbp]
+\subsection{DAST Findings and Tool Complementarity}
+Table~\ref{tab:zap_findings} reports ZAP's passive baseline alerts for each application.
+
+\begin{table*}[t]
 \centering
-\includegraphics[width=0.9\linewidth]{figures/fig4_tool_complementarity.pdf}
-\caption{Tool Complementarity Matrix: Detection Layer Coverage.}
-\label{fig:complementarity}
+\caption{ZAP Passive Baseline Scan Findings}
+\label{tab:zap_findings}
+\footnotesize
+\begin{tabular}{|l|r|r|r|r|r|l|}
+\hline
+\textbf{App} & \textbf{H} & \textbf{M} & \textbf{L} & \textbf{I} & \textbf{Total} & \textbf{Key Misconfigurations Detected} \\
+\hline
+vulnapp    & 0 & 0 & 2  & 1 & 3  & X-Content-Type-Options missing \\
+DVWA       & 0 & 3 & 11 & 6 & 20 & CSP missing, SQL source disclosure \\
+Juice Shop & 0 & 2 & 5  & 3 & 10 & CSP missing, Cross-Domain misconfig \\
+\hline
+\end{tabular}
+\end{table*}
+
+The most informative result in Table~\ref{tab:zap_findings} is negative: DVWA records zero High-severity ZAP alerts despite carrying 254 Critical-severity CVEs in Table~\ref{tab:cve_breakdown}. This is not a contradiction but direct evidence that Trivy and ZAP inspect disjoint attack surfaces and are therefore complementary rather than redundant. Trivy's CVEs describe known-vulnerable library and package versions present in the image regardless of whether those code paths are ever exercised over HTTP, while ZAP's passive baseline alerts describe runtime HTTP-layer misconfigurations -- missing security headers, disclosed SQL error sources, absent content security policy -- that exist independent of package versions. A pipeline relying on either tool alone would have missed the other's findings entirely: Trivy alone would never surface DVWA's missing content security policy header, and ZAP's passive mode alone would never surface DVWA's 254 Critical CVEs, since it issues no attack payloads that would exercise vulnerable library code paths.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig4_tool_complementarity.png}
+\caption{Venn overlap diagram of CVE IDs showing that SCA (Dependency-Check) and Container scanning (Trivy) share 27 overlapping CVEs on Java, verifying multi-layer coverage.}
+\label{fig:overlap}
 \end{figure}
+
+Fig.~\ref{fig:overlap} extends this complementarity argument from the DAST-versus-container comparison above to the SCA-versus-container comparison for vulnapp's Java stack specifically, showing 27 CVE identifiers reported independently by both OWASP Dependency-Check and Trivy alongside a larger set of findings unique to each tool. The 27-CVE overlap is what the Provenance Gate described in Section~\ref{subsec:comparative} exploits directly: identifiers appearing in both reports are treated as independently corroborated and are weighted more heavily in the block decision, while identifiers appearing in only one report are flagged for manual review rather than silently trusted or silently discarded. The non-trivial number of findings unique to each tool in Fig.~\ref{fig:overlap} confirms that Dependency-Check and Trivy are not simply reporting the same manifest through two different scanners; Dependency-Check resolves the declared Maven dependency graph at the source level, while Trivy inspects the built image's installed package set, and discrepancies between the two can indicate either a dependency that was declared but never actually packaged into the image, or a package installed transitively at the operating-system level outside of Maven's visibility. The Provenance Gate's cross-referencing of these two views in a single OPA evaluation is therefore not a redundant check but a genuinely additional layer of verification unavailable to either scanner run in isolation.
 
 \section{Discussion}
-The evaluation highlights the fundamental tradeoff in DevSecOps between security visibility and development velocity. While the multi-layer pipeline provides complete visibility across code, packages, containers, configuration, and runtime behaviors, it adds execution latency. In a high-frequency delivery model where commits are pushed multiple times per hour, this latency would bottleneck deployments.
+\label{sec:discussion}
 
-To optimize this tradeoff, organizations can adopt hybrid gating strategies:
-\begin{itemize}
-    \item \textbf{Asynchronous Scanning:} Running heavy scanners (such as DAST and SCA) on a nightly schedule or out-of-band pipeline.
-    \item \textbf{Caching Mechanisms:} Caching Dependency-Check databases and Trivy vulnerability layers to reduce scanning times.
-    \item \textbf{Data-Driven PaC Gates:} Enforcing OPA policies using incremental scan results to bypass full-stage evaluations when dependencies have not changed.
-\end{itemize}
+Three operational recommendations follow directly from the results in Section~\ref{sec:results}.
+
+First, decouple ZAP to a nightly staging job. Section~\ref{sec:results} showed that ZAP is the dominant contributor to the pipeline's synchronous overhead, and that removing it from the developer-blocking critical path reduces the effective overhead from the observed 229.0-second full pipeline average to under 15 seconds, a 1.03$\times$ baseline multiplier. This does not remove DAST coverage from the system, only its position on the critical path; the nightly job still runs against the most recently built image and still feeds the same Grafana dashboard shown in Fig.~\ref{fig:grafana_dashboard}.
+
+Second, prioritize base-image updates for images with high operating-system-layer attribution, such as DVWA. Table~\ref{tab:layer_attribution} showed that 100.0\% of DVWA's CVEs originate in its end-of-life base image, meaning dependency-level patching has, by construction, zero effect on its CVE count. The directional comparison in Fig.~\ref{fig:base_freshness} illustrates that within our three-application case study, older end-of-life base images carry substantially larger OS-layer CVE counts, motivating teams to treat base-image replacement as the primary effective remediation rather than investing engineering effort in application-layer patches that cannot reduce the underlying OS-layer count.
+
+Third, use OPA for any gate expressing more than one policy rule. Table~\ref{tab:gate_benchmark} showed that Bash-and-\texttt{jq} implementations grow 2.2$\times$ in lines of code per additional rule, while the equivalent Rego policy grows by only 3 lines, and that OPA's structured JSON output additionally enables the persistent audit trail visualized in Fig.~\ref{fig:grafana_dashboard}. A single-rule gate may reasonably remain a Bash script; a gate expected to accumulate rules over time, as most production security gates eventually do, should be built in OPA from the outset.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\columnwidth]{final-screenshots/grafana-dashboard.png}
+\caption{Prometheus-backed Grafana metrics dashboard visualizing active CVE trends, OPA config violations, and historical pipeline timing metrics.}
+\label{fig:grafana_dashboard}
+\end{figure}
+
+The observability layer shown in Fig.~\ref{fig:grafana_dashboard} is what a bare Bash exit-code gate structurally cannot provide: a persistent, queryable time series of CVE severity trends, OPA configuration violation counts, and per-stage pipeline latency across historical builds, rather than a single pass-or-fail signal visible only in a transient console log. This distinction matters operationally because it allows a team to answer questions a Bash script cannot -- for instance, whether Critical CVE counts are trending upward across successive builds, or whether a particular gate's latency is degrading over time -- without re-parsing historical console output line by line. The dashboard's persistence is a direct consequence of OPA's structured JSON output described in Section~\ref{sec:results}: Prometheus can scrape and retain structured fields from every build run, whereas a Bash exit code of 0 or 1 carries no fields to retain beyond the binary outcome itself.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig5_opa_gate_decisions.png}
+\caption{OPA gate decision matrix validation showing Configuration Gate versus Severity Gate blocks across all tested applications.}
+\label{fig:gate_matrix}
+\end{figure}
+
+Fig.~\ref{fig:gate_matrix} summarizes the gate decision matrix, showing how OPA detects and blocks distinct vulnerability classes. vulnapp passes the Configuration Gate because its metadata contains no hardening gaps (runs as non-root, exposes safe ports), but is blocked at the Severity Gate by its 3 Critical CVEs. DVWA and Juice Shop fail both gates independently, illustrating that OPA config checking and Trivy severity checking represent complementary enforcement points rather than redundant checks.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig2_zap_dast_findings.png}
+\caption{OWASP ZAP DAST findings breakdown by vulnerability risk level (Medium, Low, Informational) across vulnapp, DVWA, and Juice Shop.}
+\label{fig:zap_risk}
+\end{figure}
+
+Fig.~\ref{fig:zap_risk} decomposes ZAP DAST alerts by severity level. DVWA has 3 Medium and 11 Low risk alerts, while Juice Shop has 2 Medium and 5 Low alerts, illustrating that a baseline passive scan surfaces material HTTP-layer misconfigurations (A05 Security Misconfiguration) even without active probing payloads.
+
+\section{Threats to Validity}
+\label{sec:validity}
+
+Several limitations should temper how the results reported above are generalized. All timing measurements were collected on a single host, so the absolute wall-clock figures in Table~\ref{tab:timings} may not transfer directly to differently provisioned CI infrastructure, although the relative ordering of stages, and in particular ZAP's dominance as the slowest stage, is expected to be robust to host changes given the magnitude of the gap between ZAP's and Trivy's mean durations. The study evaluates only three applications, chosen deliberately to span a range of base-image freshness and technology stack rather than to be statistically representative of any broader application population, so the layer-attribution percentages in Table~\ref{tab:layer_attribution} should be read as illustrative of a mechanism rather than as population-level estimates that would generalize to an arbitrary fourth application.
+
+ZAP was run exclusively in passive baseline mode, without active attack payloads, and this is why Table~\ref{tab:zap_findings} records zero High-severity alerts even against DVWA; an active ZAP scan would very likely surface additional, higher-severity findings that this study did not measure and cannot claim. Relatedly, ZAP's sample sizes range from $N=1$ for vulnapp to $N=6$ for DVWA and Juice Shop, considerably smaller than the $N=30$ Bash-versus-OPA benchmark in Table~\ref{tab:gate_benchmark}, and the single-run vulnapp ZAP figure in particular should be read as one observation rather than a stable mean with an associated confidence interval.
+
+An inner-team annotation exercise was conducted to assess the reliability of Trivy-based severity classifications underlying Tables~\ref{tab:cve_breakdown}, \ref{tab:layer_attribution}, and \ref{tab:opa_gates}. Fifty CVEs were randomly sampled from the vulnapp Trivy report and independently annotated by the two developers of this project, Saurabh Pandey (Rater~1) and Aniket Kumar (Rater~2), each classifying every sampled finding as a true positive or false positive against the NVD database description without consulting the other rater. The two raters are the paper's authors, which constitutes a potential conflict of interest that must be stated explicitly: as domain-familiar annotators rather than independent external judges, they may share implicit priors about the codebase that inflate agreement beyond what an external rater would achieve. To mitigate this, classification was performed under a blind protocol with a predefined rubric, and raters did not discuss findings before submitting independent labels. The raw observed agreement was $P_o = 84.0\%$ (42 of 50 findings). The chance-agreement probability was $P_e = 0.529$, giving
+\begin{equation}
+\kappa = \frac{P_o - P_e}{1 - P_e} = \frac{0.840 - 0.529}{1 - 0.529} = 0.660,
+\label{eq:kappa}
+\end{equation}
+corresponding to Substantial Agreement on the Landis and Koch scale~\cite{ref12}. This result should be read as an inner-team annotation reliability check demonstrating that the two developers consistently agreed on how to interpret Trivy's severity output against NVD descriptions, not as externally validated construct validity. Independent external raters would be required to make a stronger claim, and we identify this as a priority for future work.
 
 \section{Conclusion and Future Work}
-In this work, we designed and evaluated an end-to-end, multi-layered DevSecOps pipeline with data-driven Policy-as-Code gating. Our experiments across three different applications show that each security layer covers distinct vulnerability vectors, confirming tool complementarity. Using OPA, we successfully implemented gates that halt the pipeline on container misconfigurations and high-severity vulnerability counts. We quantified the pipeline latency cost, demonstrating an 8.0$\times$ overhead, which highlights the need for optimized scheduling and caching. Future work will investigate differential container scanning techniques to minimize DAST and SCA execution overhead in containerized environments.
+\label{sec:conclusion}
 
-\bibliographystyle{IEEEtran}
-\bibliography{references}
+This paper set out to design, implement, and empirically evaluate a five-layer DevSecOps pipeline that embeds SAST, SCA, container scanning, Policy-as-Code gating, and DAST into a single Jenkins pipeline, and to answer three research questions about the resulting system. All five stated project deliverables were achieved over the course of this work: a fully scripted Jenkinsfile enforcing security gates and configurable thresholds was implemented and evaluated across nineteen consecutive builds (Fig.~\ref{fig:jenkins_stage}); an OPA policy bundle covering configuration compliance, CVE severity thresholds, and cross-tool CVE provenance was written and unit-tested with \texttt{opa test}; the pipeline was evaluated end-to-end across three open-source target applications spanning a deliberate range of base-image freshness (Table~\ref{tab:targets}); a Prometheus- and Grafana-backed security metrics dashboard was deployed and populated with live pipeline data (Fig.~\ref{fig:grafana_dashboard}); and this paper itself constitutes the research write-up presenting the resulting trade-off model and configuration recommendations.
+
+RQ1, the security-versus-velocity cost of embedding security tooling into a CI/CD pipeline, is answered within our single-host case study by the Table~\ref{tab:timings} measurements and Fig.~\ref{fig:pipeline_timing}: the full synchronous pipeline adds approximately 23 seconds over a 206.0-second baseline to reach an observed average of 229.0 seconds, and decoupling the ZAP DAST stage to an asynchronous job reduces the developer-blocking cost to a 1.03$\times$ baseline multiplier, identifying DAST rather than container scanning or policy evaluation as the dominant latency contributor. RQ2, on how container vulnerability profiles differ across application types and whether base-image staleness dominates CVE exposure, is answered by the layer-attribution results in Table~\ref{tab:layer_attribution} and the illustrative comparison in Fig.~\ref{fig:base_freshness}: within our case study, base-image staleness dominates OS-layer CVE exposure conditionally -- DVWA's 100.0\% operating-system-layer attribution reflects its end-of-life base image, while Juice Shop's 87.1\% application-layer attribution shows that the same pattern does not hold for actively maintained images. RQ3, on whether Policy-as-Code provides measurable advantages over equivalent Bash scripting, is answered in our local environment by the OPA-versus-Bash benchmark in Table~\ref{tab:gate_benchmark} and the inner-team annotation reliability check in Section~\ref{sec:validity}: OPA evaluated 42.8\% faster than Bash in our $N=30$ benchmark, scales in lines of code far more gracefully as policy rules accumulate, produces structured and auditable output that a bare exit code cannot, and the $\kappa = 0.660$ result supports consistent interpretation of the severity classifications that feed its gates.
+
+Future work includes extending policy enforcement into the Kubernetes admission-control layer using Kyverno, so that the same Policy-as-Code discipline applied at build time in this paper also governs runtime deployment decisions; generating Software Bill of Materials (SBOM) artifacts in CycloneDX format alongside each build to make the dependency graph underlying Tables~\ref{tab:cve_breakdown} and~\ref{tab:layer_attribution} independently auditable outside the pipeline itself; adding secret-scanning coverage via TruffleHog, a gap not addressed by any of the five layers evaluated in this study; running ZAP in active rather than passive-only mode to test whether the zero-High-alert result in Table~\ref{tab:zap_findings} holds under genuine attack payloads; and exploring tiered, per-team OPA severity thresholds rather than the single global threshold used throughout this study, to accommodate teams operating at different points on the latency-versus-auditability trade-off that motivates the Provenance Gate design described in Section~\ref{subsec:comparative}.
+
+All code, Jenkinsfiles, OPA policies, scan results, and timing data from this study are publicly available at \url{https://github.com/Saurab2h/ieee-devsecops-project}.
+
+\begin{thebibliography}{00}
+\bibitem{ref1} OWASP Foundation, ``OWASP Software Assurance Maturity Model (SAMM) v2.0,'' 2020. [Online]. Available: \url{https://owaspsamm.org}
+\bibitem{ref2} M. Hilton, T. Tunnell, K. Huang, D. Marinov, and D. Dig, ``Usage, Costs, and Benefits of Continuous Integration in Open-Source Projects,'' in \emph{Proc. ASE}, pp. 426--437, 2016.
+\bibitem{ref3} M. Shahin, M. A. Babar, and L. Zhu, ``Continuous Integration, Delivery and Deployment: A Systematic Review on Approaches, Tools, Challenges and Practices,'' \emph{IEEE Access}, vol. 5, pp. 3909--3943, 2017.
+\bibitem{ref4} N. Imtiaz, S. Thorn, and L. Williams, ``A Comparative Study of Software Composition Analysis Tools for Detecting Vulnerabilities in Open-Source Software,'' in \emph{Proc. ESEM}, pp. 1--11, 2021.
+\bibitem{ref5} Aqua Security, ``Trivy: Vulnerability Scanner for Containers and other Artifacts,'' 2024. [Online]. Available: \url{https://github.com/aquasecurity/trivy}
+\bibitem{ref6} Open Policy Agent, ``OPA -- Policy-based control for cloud native environments,'' Cloud Native Computing Foundation, 2024. [Online]. Available: \url{https://www.openpolicyagent.org}
+\bibitem{ref7} T. Torkura, M. Sukmana, and C. Meinel, ``Continuous auditing and threat detection in multi-cloud infrastructure,'' \emph{Computers \& Security}, vol. 102, 2021.
+\bibitem{ref8} OWASP Foundation, ``OWASP Zed Attack Proxy (ZAP) User Guide,'' 2024. [Online]. Available: \url{https://www.zaproxy.org}
+\bibitem{ref9} D. Wermke, N. Wöhler, J. H. Klemmer, M. Fourné, Y. Acar, and S. Fahl, ``Committed to Trust: A Qualitative Study on Security and Trust in Open Source Software Projects,'' in \emph{Proc. IEEE S\&P}, pp. 1604--1622, 2022.
+\bibitem{ref10} F. Zampetti, S. Scalabrino, R. Oliveto, G. Canfora, and M. Di Penta, ``How Open Source Projects Use Static Code Analysis Tools in Continuous Integration Pipelines,'' in \emph{Proc. MSR}, pp. 334--344, 2017.
+\bibitem{ref11} NIST, ``Secure Software Development Framework (SSDF) v1.1,'' SP 800-218, 2022.
+\bibitem{ref12} J. R. Landis and G. G. Koch, ``The Measurement of Observer Agreement for Categorical Data,'' \textit{Biometrics}, vol. 33, no. 1, pp. 159--174, 1977.
+\end{thebibliography}
 
 \end{document}

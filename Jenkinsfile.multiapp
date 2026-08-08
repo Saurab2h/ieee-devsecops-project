@@ -25,6 +25,8 @@ pipeline {
         DOCKER    = "docker"
         TRIVY     = "trivy"
         OPA       = "opa"
+        SEMGREP   = "semgrep"
+        DEP_CHECK = "dependency-check"
         ZAP_IMAGE = "ghcr.io/zaproxy/zaproxy:stable"
     }
 
@@ -59,7 +61,31 @@ pipeline {
             }
         }
 
-        // ── Stage 1: Parallel Trivy + OPA Scans ───────────────────────
+        // ── Stage 1: SAST & SCA (vulnapp only) ────────────────────────
+        // Since DVWA and Juice Shop are external Docker images, source code 
+        // analysis is run only on our internal application (vulnapp).
+        stage('SAST & SCA (vulnapp)') {
+            steps {
+                sh '''
+                echo "--- SAST (Semgrep) ---"
+                START=$(date +%s)
+                cd app/vulnapp
+                $SEMGREP scan --config auto --json \
+                  --output ${WORKSPACE}/results/multiapp/vulnapp/semgrep-report.json . || true
+                END=$(date +%s)
+                echo "vulnapp_semgrep_seconds=$((END-START))" >> ${WORKSPACE}/results/multiapp/timings.txt
+
+                echo "--- SCA (Dependency-Check) ---"
+                START=$(date +%s)
+                $DEP_CHECK --project vulnapp --scan . --format ALL \
+                  --out ${WORKSPACE}/results/multiapp/vulnapp/ || true
+                END=$(date +%s)
+                echo "vulnapp_depcheck_seconds=$((END-START))" >> ${WORKSPACE}/results/multiapp/timings.txt
+                '''
+            }
+        }
+
+        // ── Stage 2: Parallel Trivy + OPA Scans ───────────────────────
         // All 3 apps are scanned simultaneously to save time.
         stage('Parallel Trivy + OPA Scans') {
             parallel {
@@ -68,21 +94,16 @@ pipeline {
                 stage('Scan: vulnapp') {
                     steps {
                         sh '''
-                        echo "--- Trivy: vulnapp ---"
-                        START=$(date +%s)
-
-                        $TRIVY image \
-                          -f json \
-                          -o results/multiapp/vulnapp/trivy-report.json \
-                          vulnapp
-
-                        $TRIVY image \
-                          --format table \
-                          vulnapp > results/multiapp/vulnapp/trivy-report.txt || true
-
-                        END=$(date +%s)
-                        echo "vulnapp_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
-                        echo "Trivy vulnapp done in $((END-START))s"
+                        echo "--- Trivy: vulnapp (N=30 iterations) ---"
+                        for i in \$(seq 1 30); do
+                            START=\$(date +%s)
+                            $TRIVY image -f json -o results/multiapp/vulnapp/trivy-report.json vulnapp > /dev/null 2>&1
+                            END=\$(date +%s)
+                            echo "vulnapp_trivy_seconds=\$((END-START))" >> results/multiapp/timings.txt
+                        done
+                        
+                        $TRIVY image --format table vulnapp > results/multiapp/vulnapp/trivy-report.txt || true
+                        echo "Trivy vulnapp N=30 completed"
 
                         echo "--- OPA: vulnapp ---"
                         $DOCKER image inspect vulnapp \
@@ -107,23 +128,18 @@ pipeline {
                 stage('Scan: DVWA') {
                     steps {
                         sh '''
-                        echo "--- Pull + Trivy: DVWA ---"
-                        START=$(date +%s)
-
+                        echo "--- Pull + Trivy: DVWA (N=30 iterations) ---"
                         $DOCKER pull vulnerables/web-dvwa:latest || true
+                        
+                        for i in \$(seq 1 30); do
+                            START=\$(date +%s)
+                            $TRIVY image -f json -o results/multiapp/dvwa/trivy-report.json vulnerables/web-dvwa:latest > /dev/null 2>&1
+                            END=\$(date +%s)
+                            echo "dvwa_trivy_seconds=\$((END-START))" >> results/multiapp/timings.txt
+                        done
 
-                        $TRIVY image \
-                          -f json \
-                          -o results/multiapp/dvwa/trivy-report.json \
-                          vulnerables/web-dvwa:latest
-
-                        $TRIVY image \
-                          --format table \
-                          vulnerables/web-dvwa:latest > results/multiapp/dvwa/trivy-report.txt || true
-
-                        END=$(date +%s)
-                        echo "dvwa_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
-                        echo "Trivy DVWA done in $((END-START))s"
+                        $TRIVY image --format table vulnerables/web-dvwa:latest > results/multiapp/dvwa/trivy-report.txt || true
+                        echo "Trivy DVWA N=30 completed"
 
                         echo "--- OPA: DVWA ---"
                         $DOCKER image inspect vulnerables/web-dvwa:latest \
@@ -148,23 +164,18 @@ pipeline {
                 stage('Scan: Juice Shop') {
                     steps {
                         sh '''
-                        echo "--- Pull + Trivy: Juice Shop ---"
-                        START=$(date +%s)
-
+                        echo "--- Pull + Trivy: Juice Shop (N=30 iterations) ---"
                         $DOCKER pull bkimminich/juice-shop:latest || true
+                        
+                        for i in \$(seq 1 30); do
+                            START=\$(date +%s)
+                            $TRIVY image -f json -o results/multiapp/juiceshop/trivy-report.json bkimminich/juice-shop:latest > /dev/null 2>&1
+                            END=\$(date +%s)
+                            echo "juiceshop_trivy_seconds=\$((END-START))" >> results/multiapp/timings.txt
+                        done
 
-                        $TRIVY image \
-                          -f json \
-                          -o results/multiapp/juiceshop/trivy-report.json \
-                          bkimminich/juice-shop:latest
-
-                        $TRIVY image \
-                          --format table \
-                          bkimminich/juice-shop:latest > results/multiapp/juiceshop/trivy-report.txt || true
-
-                        END=$(date +%s)
-                        echo "juiceshop_trivy_seconds=$((END-START))" >> results/multiapp/timings.txt
-                        echo "Trivy Juice Shop done in $((END-START))s"
+                        $TRIVY image --format table bkimminich/juice-shop:latest > results/multiapp/juiceshop/trivy-report.txt || true
+                        echo "Trivy Juice Shop N=30 completed"
 
                         echo "--- OPA: Juice Shop ---"
                         $DOCKER image inspect bkimminich/juice-shop:latest \
@@ -218,20 +229,26 @@ pipeline {
                       vulnapp || true
                     sleep 15
 
-                    # Run ZAP with translated host bind mount
-                    $DOCKER run --rm \
-                      --name vulnapp-zap-scan \
-                      --user root \
-                      --network host \
-                      -v "$HOST_WORKSPACE/results/multiapp/vulnapp:/zap/wrk" \
-                      ${ZAP_IMAGE} \
-                      zap-baseline.py \
-                        -t http://localhost:8081 \
-                        -r zap-report.html \
-                        -J zap-report.json \
-                        -x zap-report.xml \
-                        -l WARN \
-                        -d || true
+                    # Run ZAP with translated host bind mount (N=30 iterations)
+                    for i in \$(seq 1 30); do
+                        START=\$(date +%s)
+                        $DOCKER run --rm \
+                          --name vulnapp-zap-scan-\$i \
+                          --user root \
+                          --network host \
+                          -v "$HOST_WORKSPACE/results/multiapp/vulnapp:/zap/wrk" \
+                          ${ZAP_IMAGE} \
+                          zap-full-scan.py \
+                            -t http://localhost:8081 \
+                            -r zap-report.html \
+                            -J zap-report.json \
+                            -x zap-report.xml \
+                            -l WARN \
+                            -d \
+                            -m 1 > /dev/null 2>&1 || true
+                        END=\$(date +%s)
+                        echo "vulnapp_zap_seconds=\$((END-START))" >> results/multiapp/timings.txt
+                    done
 
                     $DOCKER rm -f vulnapp-scan-target || true
 
@@ -243,9 +260,7 @@ pipeline {
                         exit 1
                     fi
 
-                    END=$(date +%s)
-                    echo "vulnapp_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
-                    echo "ZAP vulnapp done in $((END-START))s"
+                    echo "ZAP vulnapp N=30 completed"
                     '''
                 }
             }
@@ -280,20 +295,26 @@ pipeline {
                       vulnerables/web-dvwa:latest || true
                     sleep 15
 
-                    # Run ZAP with translated host bind mount
-                    $DOCKER run --rm \
-                      --name dvwa-zap-scan \
-                      --user root \
-                      --network host \
-                      -v "$HOST_WORKSPACE/results/multiapp/dvwa:/zap/wrk" \
-                      ${ZAP_IMAGE} \
-                      zap-baseline.py \
-                        -t http://localhost:8082 \
-                        -r zap-report.html \
-                        -J zap-report.json \
-                        -x zap-report.xml \
-                        -l WARN \
-                        -d || true
+                    # Run ZAP with translated host bind mount (N=30 iterations)
+                    for i in \$(seq 1 30); do
+                        START=\$(date +%s)
+                        $DOCKER run --rm \
+                          --name dvwa-zap-scan-\$i \
+                          --user root \
+                          --network host \
+                          -v "$HOST_WORKSPACE/results/multiapp/dvwa:/zap/wrk" \
+                          ${ZAP_IMAGE} \
+                          zap-full-scan.py \
+                            -t http://localhost:8082 \
+                            -r zap-report.html \
+                            -J zap-report.json \
+                            -x zap-report.xml \
+                            -l WARN \
+                            -d \
+                            -m 1 > /dev/null 2>&1 || true
+                        END=\$(date +%s)
+                        echo "dvwa_zap_seconds=\$((END-START))" >> results/multiapp/timings.txt
+                    done
 
                     $DOCKER rm -f dvwa-scan-target || true
 
@@ -305,9 +326,7 @@ pipeline {
                         exit 1
                     fi
 
-                    END=$(date +%s)
-                    echo "dvwa_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
-                    echo "ZAP DVWA done in $((END-START))s"
+                    echo "ZAP DVWA N=30 completed"
                     '''
                 }
             }
@@ -342,20 +361,26 @@ pipeline {
                       bkimminich/juice-shop:latest || true
                     sleep 25
 
-                    # Run ZAP with translated host bind mount
-                    $DOCKER run --rm \
-                      --name juiceshop-zap-scan \
-                      --user root \
-                      --network host \
-                      -v "$HOST_WORKSPACE/results/multiapp/juiceshop:/zap/wrk" \
-                      ${ZAP_IMAGE} \
-                      zap-baseline.py \
-                        -t http://localhost:8083 \
-                        -r zap-report.html \
-                        -J zap-report.json \
-                        -x zap-report.xml \
-                        -l WARN \
-                        -d || true
+                    # Run ZAP with translated host bind mount (N=30 iterations)
+                    for i in \$(seq 1 30); do
+                        START=\$(date +%s)
+                        $DOCKER run --rm \
+                          --name juiceshop-zap-scan-\$i \
+                          --user root \
+                          --network host \
+                          -v "$HOST_WORKSPACE/results/multiapp/juiceshop:/zap/wrk" \
+                          ${ZAP_IMAGE} \
+                          zap-full-scan.py \
+                            -t http://localhost:8083 \
+                            -r zap-report.html \
+                            -J zap-report.json \
+                            -x zap-report.xml \
+                            -l WARN \
+                            -d \
+                            -m 1 > /dev/null 2>&1 || true
+                        END=\$(date +%s)
+                        echo "juiceshop_zap_seconds=\$((END-START))" >> results/multiapp/timings.txt
+                    done
 
                     $DOCKER rm -f juiceshop-scan-target || true
 
@@ -367,9 +392,7 @@ pipeline {
                         exit 1
                     fi
 
-                    END=$(date +%s)
-                    echo "juiceshop_zap_seconds=$((END-START))" >> results/multiapp/timings.txt
-                    echo "ZAP Juice Shop done in $((END-START))s"
+                    echo "ZAP Juice Shop N=30 completed"
                     '''
                 }
             }
@@ -464,6 +487,15 @@ pipeline {
 
                 # Print to console
                 cat "$SUMMARY"
+                '''
+            }
+        }
+        // ── Stage 4: Push Metrics to Prometheus ───────────────────────
+        stage('Push Metrics to Prometheus') {
+            steps {
+                sh '''
+                echo "--- Pushing Metrics to Pushgateway ---"
+                python3 scripts/push-metrics.py || echo "WARNING: Failed to push metrics"
                 '''
             }
         }

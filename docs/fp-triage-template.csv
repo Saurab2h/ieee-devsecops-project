@@ -1,0 +1,13 @@
+Finding_ID,Tool,Target_App,Vulnerability_Name,Severity,Rater_1_Decision(TP/FP),Rater_1_Reason,Rater_2_Decision(TP/FP),Rater_2_Reason,Cohen_Kappa_Match
+1,Semgrep,vulnapp,Hardcoded Secret,HIGH,,,,
+2,Dependency-Check,vulnapp,CVE-2022-22965,CRITICAL,,,,
+3,Dependency-Check,vulnapp,CVE-2022-42889,HIGH,,,,
+4,Trivy,vulnapp,CVE-2023-34034,CRITICAL,,,,
+5,Trivy,DVWA,CVE-2024-1086,HIGH,,,,
+6,Trivy,Juice Shop,CVE-2023-45283,HIGH,,,,
+7,ZAP,DVWA,CSP Header Not Set,MEDIUM,,,,
+8,ZAP,DVWA,Missing Anti-Clickjacking,MEDIUM,,,,
+9,ZAP,DVWA,Cookie SameSite Missing,LOW,,,,
+10,ZAP,vulnapp,X-Content-Type Missing,LOW,,,,
+11,OPA,vulnapp,Container runs as root,CRITICAL,,,,
+12,OPA,DVWA,Port 8080/tcp not EXPOSEd,CRITICAL,,,,

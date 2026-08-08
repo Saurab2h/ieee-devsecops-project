@@ -27,8 +27,7 @@ RUN apt-get update && \
         gnupg \
         lsb-release \
         ca-certificates \
-        apt-transport-https \
-        software-properties-common && \
+        apt-transport-https && \
     rm -rf /var/lib/apt/lists/*
 
 # ── 2. Docker CLI (so Jenkins can run docker commands) ────────
@@ -55,7 +54,7 @@ RUN curl -Lo /usr/local/bin/opa \
 # ── 5. Semgrep ───────────────────────────────────────────────
 RUN apt-get update && \
     apt-get install -y python3-pip && \
-    pip3 install semgrep && \
+    pip3 install semgrep --break-system-packages && \
     rm -rf /var/lib/apt/lists/*
 
 # ── 6. Verify all tools are present at build time ────────────

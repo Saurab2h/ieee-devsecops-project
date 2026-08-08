@@ -22,8 +22,8 @@ services:
     restart: unless-stopped
 
     ports:
-      - "8080:8080"    # Jenkins UI
-      - "50000:50000"  # Agent JNLP port
+      - "8082:8080"    # Jenkins UI
+      - "50002:50000"  # Agent JNLP port
 
     volumes:
       # Persist Jenkins home across restarts
@@ -41,6 +41,47 @@ services:
     group_add:
       - "${DOCKER_GID:-999}"
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    depends_on:
+      - pushgateway
+
+  pushgateway:
+    image: prom/pushgateway:latest
+    container_name: pushgateway
+    restart: unless-stopped
+    ports:
+      - "9091:9091"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3005:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   jenkins_home:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
     driver: local
