@@ -298,13 +298,6 @@ ax.set_xlim(0, 58)
 ax.set_ylim(0, 1700)
 ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{int(v):,}"))
 ax.spines[["top", "right"]].set_visible(False)
-
-# regression line
-z = np.polyfit(age_months, total_cves, 1)
-p = np.poly1d(z)
-xs = np.linspace(0, 55, 100)
-ax.plot(xs, p(xs), "--", color="#AAA", linewidth=1.2, label="Linear trend")
-ax.legend(fontsize=9)
 fig.tight_layout()
 fig.savefig(f"{OUT}/fig6_base_image_freshness.pdf", bbox_inches="tight")
 fig.savefig(f"{OUT}/fig6_base_image_freshness.png", bbox_inches="tight")
