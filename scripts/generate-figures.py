@@ -281,7 +281,7 @@ print("  -> figures/fig5_opa_gate_decisions.pdf")
 # ─────────────────────────────────────────────────────────────────────────────
 print("Generating Figure 6: Base-Image Freshness vs CVE Count...")
 
-base_images = ["eclipse-temurin:17-jre\n(vulnapp)", "node:18-alpine\n(Juice Shop)", "debian:buster\n(DVWA)"]
+base_images = ["openjdk:8\n(vulnapp)", "node:18-alpine\n(Juice Shop)", "debian:buster\n(DVWA)"]
 # approximate age in months at time of scan
 age_months = [6, 8, 48]   # temurin 17 actively maintained; node 18 LTS; debian buster EOL ~2022
 total_cves  = [3+34+164, 7+42+32, 254+551+642]
