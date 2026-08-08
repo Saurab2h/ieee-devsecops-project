@@ -45,11 +45,12 @@ plt.rcParams.update({
 # ─────────────────────────────────────────────────────────────────────────────
 print("Generating Figure 1: Trivy CVE Severity Distribution...")
 
+# Data from Table IV: vulnapp=273, DVWA=1575, Juice Shop=93
 crit  = [3,   254, 7]
 high  = [34,  551, 42]
 med   = [164, 642, 32]
-low_v = [0,   116, 0]   # low not in summary but present in full json
-unk   = [0,   0,   0]
+low_v = [0,   116, 0]
+unk   = [72,  12,  12]   # Unknown: vulnapp=273-(3+34+164)=72, DVWA=1575-(254+551+642+116)=12, JS=93-(7+42+32)=12
 
 x = np.arange(len(APPS_SHORT))
 w = 0.55
@@ -59,6 +60,7 @@ b1 = ax.bar(x, crit,  w, label="Critical", color=COLORS["critical"])
 b2 = ax.bar(x, high,  w, bottom=crit, label="High", color=COLORS["high"])
 b3 = ax.bar(x, med,   w, bottom=[c+h for c,h in zip(crit,high)], label="Medium", color=COLORS["medium"])
 b4 = ax.bar(x, low_v, w, bottom=[c+h+m for c,h,m in zip(crit,high,med)], label="Low", color=COLORS["low"])
+b5 = ax.bar(x, unk,   w, bottom=[c+h+m+l for c,h,m,l in zip(crit,high,med,low_v)], label="Unknown", color="#95A5A6")
 
 # value labels on critical bar only
 for i, (xp, c) in enumerate(zip(x, crit)):
@@ -66,7 +68,7 @@ for i, (xp, c) in enumerate(zip(x, crit)):
         ax.text(xp, c/2, str(c), ha="center", va="center",
                 fontsize=9, fontweight="bold", color="white")
 
-totals = [c+h+m+l for c,h,m,l in zip(crit,high,med,low_v)]
+totals = [c+h+m+l+u for c,h,m,l,u in zip(crit,high,med,low_v,unk)]
 for i, (xp, t) in enumerate(zip(x, totals)):
     ax.text(xp, t + 8, f"Total: {t}", ha="center", va="bottom", fontsize=9, color="#333")
 
@@ -127,7 +129,7 @@ print("  -> figures/fig2_zap_dast_findings.pdf")
 # ─────────────────────────────────────────────────────────────────────────────
 print("Generating Figure 3: Pipeline Stage Timing Breakdown...")
 
-# Real values from timings.txt (last run, parallel stages take max of parallel arms)
+# Real values from Table III: warm-cache means
 stages = [
     "Checkout",
     "Prepare / Image Pull",
@@ -139,7 +141,7 @@ stages = [
     "Aggregate Results",
     "Archive Artifacts",
 ]
-durations = [2, 8, 6, 4, 49, 49, 73, 3, 5]  # seconds — from timings.txt
+durations = [2, 8, 6, 4, 49, 72, 71, 3, 5]  # seconds — from Table III warm-cache means: ZAP vulnapp=49s, DVWA=72s, Juice Shop=70.7≈71s
 stage_colors = [
     "#95A5A6",  # checkout
     "#95A5A6",  # prepare
